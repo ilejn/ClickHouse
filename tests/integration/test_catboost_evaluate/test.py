@@ -39,6 +39,7 @@ def ch_cluster():
 # ---------------------------------------------------------------------------
 # simple_model.bin has 2 float features and 9 categorical features
 
+
 def testConstantFeatures(ch_cluster):
     if instance.is_built_with_memory_sanitizer():
         pytest.skip("Memory Sanitizer cannot work with third-party shared libraries")
@@ -229,6 +230,7 @@ def testRecoveryAfterCrash(ch_cluster):
 # ---------------------------------------------------------------------------
 # amazon_model.bin has 0 float features and 9 categorical features
 
+
 def testAmazonModelSingleRow(ch_cluster):
     if instance.is_built_with_memory_sanitizer():
         pytest.skip("Memory Sanitizer cannot work with third-party shared libraries")
@@ -246,13 +248,19 @@ def testAmazonModelManyRows(ch_cluster):
 
     result = instance.query("drop table if exists amazon")
 
-    result = instance.query("create table amazon ( DATE Date materialized today(), ACTION UInt8, RESOURCE UInt32, MGR_ID UInt32, ROLE_ROLLUP_1 UInt32, ROLE_ROLLUP_2 UInt32, ROLE_DEPTNAME UInt32, ROLE_TITLE UInt32, ROLE_FAMILY_DESC UInt32, ROLE_FAMILY UInt32, ROLE_CODE UInt32) engine = MergeTree order by DATE")
+    result = instance.query(
+        "create table amazon ( DATE Date materialized today(), ACTION UInt8, RESOURCE UInt32, MGR_ID UInt32, ROLE_ROLLUP_1 UInt32, ROLE_ROLLUP_2 UInt32, ROLE_DEPTNAME UInt32, ROLE_TITLE UInt32, ROLE_FAMILY_DESC UInt32, ROLE_FAMILY UInt32, ROLE_CODE UInt32) engine = MergeTree order by DATE"
+    )
 
-    result = instance.query("insert into amazon select number % 256, number, number, number, number, number, number, number, number, number from numbers(7500)")
+    result = instance.query(
+        "insert into amazon select number % 256, number, number, number, number, number, number, number, number, number from numbers(7500)"
+    )
 
     # First compute prediction, then as a very crude way to fingerprint and compare the result: sum and floor
     # (the focus is to test that the exchange of large result sets between the server and the bridge works)
-    result = instance.query("SELECT floor(sum(catboostEvaluate('/etc/clickhouse-server/model/amazon_model.bin', RESOURCE, MGR_ID, ROLE_ROLLUP_1, ROLE_ROLLUP_2, ROLE_DEPTNAME, ROLE_TITLE, ROLE_FAMILY_DESC, ROLE_FAMILY, ROLE_CODE))) FROM amazon")
+    result = instance.query(
+        "SELECT floor(sum(catboostEvaluate('/etc/clickhouse-server/model/amazon_model.bin', RESOURCE, MGR_ID, ROLE_ROLLUP_1, ROLE_ROLLUP_2, ROLE_DEPTNAME, ROLE_TITLE, ROLE_FAMILY_DESC, ROLE_FAMILY, ROLE_CODE))) FROM amazon"
+    )
 
     expected = "5834\n"
     assert result == expected
