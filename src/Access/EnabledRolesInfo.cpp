@@ -23,6 +23,10 @@ Strings EnabledRolesInfo::getEnabledRolesNames() const
     return result;
 }
 
+bool EnabledRolesInfo::rolePresent(const UUID & role_id) const
+{
+    return names_of_roles.contains(role_id);
+}
 
 bool operator==(const EnabledRolesInfo & lhs, const EnabledRolesInfo & rhs)
 {

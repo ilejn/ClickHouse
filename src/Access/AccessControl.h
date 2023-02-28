@@ -173,6 +173,11 @@ public:
     void setSettingsConstraintsReplacePrevious(bool enable) { settings_constraints_replace_previous = enable; }
     bool doesSettingsConstraintsReplacePrevious() const { return settings_constraints_replace_previous; }
 
+    // void setSettingsRoleCacheExpirationTime(int etm) { settings_role_cache_expiration_time = etm; }
+    // bool getSettingsRoleCacheExpirationTime() const { return settings_role_cache_expiration_time; }
+
+
+
     std::shared_ptr<const ContextAccess> getContextAccess(
         const UUID & user_id,
         const std::vector<UUID> & current_roles,

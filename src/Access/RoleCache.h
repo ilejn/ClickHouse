@@ -16,7 +16,7 @@ using RolePtr = std::shared_ptr<const Role>;
 class RoleCache
 {
 public:
-    explicit RoleCache(const AccessControl & access_control_);
+  explicit RoleCache(const AccessControl & access_control_, int expiration_time);
     ~RoleCache();
 
     std::shared_ptr<const EnabledRoles> getEnabledRoles(
@@ -27,8 +27,12 @@ private:
     void collectEnabledRoles(scope_guard * notifications);
     void collectEnabledRoles(EnabledRoles & enabled, scope_guard * notifications);
     RolePtr getRole(const UUID & role_id);
+    RolePtr mkRoleEntry(const UUID & role_id);
+
     void roleChanged(const UUID & role_id, const RolePtr & changed_role);
     void roleRemoved(const UUID & role_id);
+
+    bool roleEnabled(const UUID & role_id);
 
     const AccessControl & access_control;
     Poco::AccessExpireCache<UUID, std::pair<RolePtr, scope_guard>> cache;

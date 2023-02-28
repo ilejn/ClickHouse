@@ -4,7 +4,7 @@
 #include <Access/AccessControl.h>
 #include <boost/container/flat_set.hpp>
 #include <base/FnTraits.h>
-
+#include <Common/logger_useful.h>
 
 namespace DB
 {
@@ -56,12 +56,28 @@ namespace
 }
 
 
-RoleCache::RoleCache(const AccessControl & access_control_)
-    : access_control(access_control_), cache(600000 /* 10 minutes */) {}
+RoleCache::RoleCache(const AccessControl & access_control_, int expiration_time)
+    : access_control(access_control_), cache(expiration_time * 1000 /* 10 minutes by default*/)
+{
+    LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "ctor: expiration time is {}", expiration_time);
+}
 
 
 RoleCache::~RoleCache() = default;
 
+
+bool RoleCache::roleEnabled(const UUID & role_id)
+{
+    for (auto i = enabled_roles.begin(), e = enabled_roles.end(); i != e; ++i)
+    {
+        auto elem = i->second.lock();
+        if (elem && elem->info->rolePresent(role_id))
+        {
+            return true;
+        }
+    }
+    return false;
+}
 
 std::shared_ptr<const EnabledRoles>
 RoleCache::getEnabledRoles(const std::vector<UUID> & roles, const std::vector<UUID> & roles_with_admin_option)
@@ -106,6 +122,7 @@ void RoleCache::collectEnabledRoles(scope_guard * notifications)
 
 void RoleCache::collectEnabledRoles(EnabledRoles & enabled, scope_guard * notifications)
 {
+    LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "top of collectEnabledRoles");
     /// `mutex` is already locked.
 
     /// Collect enabled roles. That includes the current roles, the roles granted to the current roles, and so on.
@@ -125,14 +142,8 @@ void RoleCache::collectEnabledRoles(EnabledRoles & enabled, scope_guard * notifi
 }
 
 
-RolePtr RoleCache::getRole(const UUID & role_id)
+RolePtr RoleCache::mkRoleEntry(const UUID & role_id)
 {
-    /// `mutex` is already locked.
-
-    auto role_from_cache = cache.get(role_id);
-    if (role_from_cache)
-        return role_from_cache->first;
-
     auto subscription = access_control.subscribeForChanges(role_id,
                                                     [this, role_id](const UUID &, const AccessEntityPtr & entity)
     {
@@ -146,6 +157,7 @@ RolePtr RoleCache::getRole(const UUID & role_id)
     auto role = access_control.tryRead<Role>(role_id);
     if (role)
     {
+        LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "mkRoleEntry read role");
         auto cache_value = Poco::SharedPtr<std::pair<RolePtr, scope_guard>>(
             new std::pair<RolePtr, scope_guard>{role, std::move(subscription)});
         cache.add(role_id, cache_value);
@@ -156,17 +168,46 @@ RolePtr RoleCache::getRole(const UUID & role_id)
 }
 
 
+RolePtr RoleCache::getRole(const UUID & role_id)
+{
+    /// `mutex` is already locked.
+
+    LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "top of getRole");
+    auto role_from_cache = cache.get(role_id);
+    if (role_from_cache)
+        return role_from_cache->first;
+
+    return mkRoleEntry(role_id);
+}
+
+
 void RoleCache::roleChanged(const UUID & role_id, const RolePtr & changed_role)
 {
+    LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "top of roleChanged");
     /// Declared before `lock` to send notifications after the mutex will be unlocked.
     scope_guard notifications;
 
     std::lock_guard lock{mutex};
     auto role_from_cache = cache.get(role_id);
     if (!role_from_cache)
-        return;
-    role_from_cache->first = changed_role;
-    cache.update(role_id, role_from_cache);
+    {
+        LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "roleChanged no role in cache");
+        if (!roleEnabled(role_id))
+        {
+            LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "role not found in enabled roles");
+            return;
+        }
+        else
+        {
+            LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "role is enabled");
+            mkRoleEntry(role_id);
+        }
+    }
+    else
+    {
+        role_from_cache->first = changed_role;
+        cache.update(role_id, role_from_cache);
+    }
     collectEnabledRoles(&notifications);
 }
 
