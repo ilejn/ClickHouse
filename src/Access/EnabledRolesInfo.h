@@ -22,7 +22,7 @@ struct EnabledRolesInfo
 
     Strings getCurrentRolesNames() const;
     Strings getEnabledRolesNames() const;
-    bool rolePresent(const UUID & role_id) const;
+    bool isRolePresent(const UUID & role_id) const;
 
     friend bool operator ==(const EnabledRolesInfo & lhs, const EnabledRolesInfo & rhs);
     friend bool operator !=(const EnabledRolesInfo & lhs, const EnabledRolesInfo & rhs) { return !(lhs == rhs); }

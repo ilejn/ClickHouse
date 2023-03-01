@@ -57,21 +57,20 @@ namespace
 
 
 RoleCache::RoleCache(const AccessControl & access_control_, int expiration_time)
-    : access_control(access_control_), cache(expiration_time * 1000 /* 10 minutes by default*/)
-{
-    LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "ctor: expiration time is {}", expiration_time);
-}
+    : access_control(access_control_), cache(expiration_time * 1000 /* 10 minutes by default*/) {}
 
 
 RoleCache::~RoleCache() = default;
 
 
-bool RoleCache::roleEnabled(const UUID & role_id)
+bool RoleCache::isRoleEnabled(const UUID & role_id)
 {
+    /// `mutex` is already locked.
+
     for (auto i = enabled_roles.begin(), e = enabled_roles.end(); i != e; ++i)
     {
         auto elem = i->second.lock();
-        if (elem && elem->info->rolePresent(role_id))
+        if (elem && elem->info->isRolePresent(role_id))
         {
             return true;
         }
@@ -142,8 +141,10 @@ void RoleCache::collectEnabledRoles(EnabledRoles & enabled, scope_guard * notifi
 }
 
 
-RolePtr RoleCache::mkRoleEntry(const UUID & role_id)
+RolePtr RoleCache::makeRoleEntry(const UUID & role_id)
 {
+    /// `mutex` is already locked.
+
     auto subscription = access_control.subscribeForChanges(role_id,
                                                     [this, role_id](const UUID &, const AccessEntityPtr & entity)
     {
@@ -157,7 +158,7 @@ RolePtr RoleCache::mkRoleEntry(const UUID & role_id)
     auto role = access_control.tryRead<Role>(role_id);
     if (role)
     {
-        LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "mkRoleEntry read role");
+        LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "makeRoleEntry read role");
         auto cache_value = Poco::SharedPtr<std::pair<RolePtr, scope_guard>>(
             new std::pair<RolePtr, scope_guard>{role, std::move(subscription)});
         cache.add(role_id, cache_value);
@@ -177,7 +178,7 @@ RolePtr RoleCache::getRole(const UUID & role_id)
     if (role_from_cache)
         return role_from_cache->first;
 
-    return mkRoleEntry(role_id);
+    return makeRoleEntry(role_id);
 }
 
 
@@ -192,7 +193,7 @@ void RoleCache::roleChanged(const UUID & role_id, const RolePtr & changed_role)
     if (!role_from_cache)
     {
         LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "roleChanged no role in cache");
-        if (!roleEnabled(role_id))
+        if (!isRoleEnabled(role_id))
         {
             LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "role not found in enabled roles");
             return;
@@ -200,7 +201,7 @@ void RoleCache::roleChanged(const UUID & role_id, const RolePtr & changed_role)
         else
         {
             LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "role is enabled");
-            mkRoleEntry(role_id);
+            makeRoleEntry(role_id);
         }
     }
     else

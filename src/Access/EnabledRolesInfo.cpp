@@ -23,7 +23,7 @@ Strings EnabledRolesInfo::getEnabledRolesNames() const
     return result;
 }
 
-bool EnabledRolesInfo::rolePresent(const UUID & role_id) const
+bool EnabledRolesInfo::isRolePresent(const UUID & role_id) const
 {
     return names_of_roles.contains(role_id);
 }
