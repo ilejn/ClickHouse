@@ -13,9 +13,15 @@ bool RowPolicyFilter::empty() const
     return !expression || (tryGetLiteralBool(expression.get(), value) && value);
 }
 
+// size_t EnabledRowPolicies::Hash::operator()(const MixedFiltersKey & key) const
+// {
+//     return std::hash<std::string_view>{}(key.database) - std::hash<std::string_view>{}(key.table_name) + static_cast<size_t>(key.filter_type);
+// }
+
+
 size_t EnabledRowPolicies::Hash::operator()(const MixedFiltersKey & key) const
 {
-    return std::hash<std::string_view>{}(key.database) - std::hash<std::string_view>{}(key.table_name) + static_cast<size_t>(key.filter_type);
+    return std::hash<std::string_view>{}(key.database) + static_cast<size_t>(key.filter_type);
 }
 
 EnabledRowPolicies::EnabledRowPolicies() : params()
