@@ -8,51 +8,73 @@
 
 namespace DB
 {
-namespace
+
+std::optional<RoleCache::RoleWithGuard> RoleCache::make_shared_rwg(RoleWithGuardWeak weak)
 {
-    void collectRoles(EnabledRolesInfo & roles_info,
-                      boost::container::flat_set<UUID> & skip_ids,
-                      Fn<RolePtr(const UUID &)> auto && get_role_function,
-                      const UUID & role_id,
-                      bool is_current_role,
-                      bool with_admin_option)
+    RoleWithGuard shared;
+
+    shared.role = weak.role.lock();
+    if (shared.role)
     {
-        if (roles_info.enabled_roles.count(role_id))
+        shared.guard = weak.guard.lock();
+        if (shared.guard)
         {
-            if (is_current_role)
-                roles_info.current_roles.emplace(role_id);
-            if (with_admin_option)
-                roles_info.enabled_roles_with_admin_option.emplace(role_id);
-            return;
+            return shared;
         }
+    }
 
-        if (skip_ids.count(role_id))
-            return;
+    return {};
+}
 
-        auto role = get_role_function(role_id);
+std::optional<RoleCache::RoleWithGuardWeak> RoleCache::make_weak_rwg(RoleWithGuard shared)
+{
+    return RoleCache::RoleWithGuardWeak{shared.role, shared.guard};
+}
 
-        if (!role)
-        {
-            skip_ids.emplace(role_id);
-            return;
-        }
-
-        roles_info.enabled_roles.emplace(role_id);
+template <typename FUNCTOR>
+void RoleCache::collectRoles(EnabledRolesInfo & roles_info,
+    boost::container::flat_set<UUID> & skip_ids,
+    // Fn<std::optional<RoleWithGuard>(const UUID &)> auto && get_role_function,
+    FUNCTOR && get_role_function,
+    const UUID & role_id,
+    bool is_current_role,
+    bool with_admin_option)
+{
+    if (roles_info.enabled_roles.contains(role_id))
+    {
         if (is_current_role)
             roles_info.current_roles.emplace(role_id);
         if (with_admin_option)
             roles_info.enabled_roles_with_admin_option.emplace(role_id);
-
-        roles_info.names_of_roles[role_id] = role->getName();
-        roles_info.access.makeUnion(role->access);
-        roles_info.settings_from_enabled_roles.merge(role->settings);
-
-        for (const auto & granted_role : role->granted_roles.getGranted())
-            collectRoles(roles_info, skip_ids, get_role_function, granted_role, false, false);
-
-        for (const auto & granted_role : role->granted_roles.getGrantedWithAdminOption())
-            collectRoles(roles_info, skip_ids, get_role_function, granted_role, false, true);
+        return;
     }
+
+    if (skip_ids.contains(role_id))
+        return;
+
+    auto role = get_role_function(role_id);
+
+    if (!role)
+    {
+        skip_ids.emplace(role_id);
+        return;
+    }
+
+    roles_info.enabled_roles.emplace(role_id);
+    if (is_current_role)
+        roles_info.current_roles.emplace(role_id);
+    if (with_admin_option)
+        roles_info.enabled_roles_with_admin_option.emplace(role_id);
+
+    roles_info.names_of_roles[role_id] = role->role->getName();
+    roles_info.access.makeUnion(role->role->access);
+    roles_info.settings_from_enabled_roles.merge(role->role->settings);
+
+    for (const auto & granted_role : role->role->granted_roles.getGranted())
+        collectRoles(roles_info, skip_ids, get_role_function, granted_role, false, false);
+
+    for (const auto & granted_role : role->role->granted_roles.getGrantedWithAdminOption())
+        collectRoles(roles_info, skip_ids, get_role_function, granted_role, false, true);
 }
 
 
@@ -67,9 +89,9 @@ bool RoleCache::isRoleEnabled(const UUID & role_id)
 {
     /// `mutex` is already locked.
 
-    for (auto i = enabled_roles.begin(), e = enabled_roles.end(); i != e; ++i)
+    for (auto it = enabled_roles.begin(), e = enabled_roles.end(); it != e; ++it)
     {
-        auto elem = i->second.lock();
+        auto elem = it->second.enabled_roles_weak_ptr.lock();
         if (elem && elem->info->isRolePresent(role_id))
         {
             return true;
@@ -88,15 +110,20 @@ RoleCache::getEnabledRoles(const std::vector<UUID> & roles, const std::vector<UU
     auto it = enabled_roles.find(params);
     if (it != enabled_roles.end())
     {
-        auto from_cache = it->second.lock();
+        auto from_cache = it->second.enabled_roles_weak_ptr.lock();
         if (from_cache)
             return from_cache;
         enabled_roles.erase(it);
     }
 
     auto res = std::shared_ptr<EnabledRoles>(new EnabledRoles(params));
-    collectEnabledRoles(*res, nullptr);
-    enabled_roles.emplace(std::move(params), res);
+    std::vector<RoleWithGuard> roles_with_guard_vector;
+
+    collectEnabledRoles(*res, &roles_with_guard_vector, nullptr);
+
+    ///  roles are in  res->enabled_roles
+
+    enabled_roles.emplace(std::move(params), EnabledRolesWithGuard{res, std::move(roles_with_guard_vector)});
     return res;
 }
 
@@ -105,21 +132,21 @@ void RoleCache::collectEnabledRoles(scope_guard * notifications)
 {
     /// `mutex` is already locked.
 
-    for (auto i = enabled_roles.begin(), e = enabled_roles.end(); i != e;)
+    for (auto it = enabled_roles.begin(), e = enabled_roles.end(); it != e;)
     {
-        auto elem = i->second.lock();
+        auto elem = it->second.enabled_roles_weak_ptr.lock();
         if (!elem)
-            i = enabled_roles.erase(i);
+            it = enabled_roles.erase(it);
         else
         {
-            collectEnabledRoles(*elem, notifications);
-            ++i;
+            collectEnabledRoles(*elem, nullptr  /* ???  */ , notifications);
+            ++it;
         }
     }
 }
 
 
-void RoleCache::collectEnabledRoles(EnabledRoles & enabled, scope_guard * notifications)
+void RoleCache::collectEnabledRoles(EnabledRoles & enabled, std::vector<RoleWithGuard> * role_with_guard_ptr, scope_guard * notifications)
 {
     LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "top of collectEnabledRoles");
     /// `mutex` is already locked.
@@ -138,10 +165,26 @@ void RoleCache::collectEnabledRoles(EnabledRoles & enabled, scope_guard * notifi
 
     /// Collect data from the collected roles.
     enabled.setRolesInfo(new_info, notifications);
+
+    if (role_with_guard_ptr)
+    {
+        for (auto & role_uuid : enabled.info->enabled_roles)
+        {
+            auto it = role_catalog.find(role_uuid);
+            role_with_guard_ptr->push_back(make_shared_rwg(it->second).value());  /// why lock not checked ?
+        }
+        for (auto & role_uuid : enabled.info->enabled_roles_with_admin_option)
+        {
+            auto it = role_catalog.find(role_uuid);
+            role_with_guard_ptr->push_back(make_shared_rwg(it->second).value());
+        }
+        LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "collectEnabledRoles found out {} roles", role_with_guard_ptr->size());
+    }
+
 }
 
 
-RolePtr RoleCache::makeRoleEntry(const UUID & role_id)
+std::optional<RoleCache::RoleWithGuard> RoleCache::makeRole(const UUID & role_id)
 {
     /// `mutex` is already locked.
 
@@ -159,26 +202,36 @@ RolePtr RoleCache::makeRoleEntry(const UUID & role_id)
     if (role)
     {
         LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "makeRoleEntry read role");
-        auto cache_value = Poco::SharedPtr<std::pair<RolePtr, scope_guard>>(
-            new std::pair<RolePtr, scope_guard>{role, std::move(subscription)});
-        cache.add(role_id, cache_value);
-        return role;
+        // auto role_with_guard_ptr = std::make_shared<RoleWithGuard>(role_id, std::move(subscription));
+
+
+        auto scope_guard_ptr = std::make_shared<scope_guard>(std::move(subscription));
+        RolePtr role_ptr;
+
+
+        RoleWithGuard role_with_guard{role_ptr /*RolePtr(role)*/, scope_guard_ptr /* std::move(subscription) */};
+
+        // auto cache_value = Poco::SharedPtr<std::pair<RolePtr, scope_guard>>(
+        //     new std::pair<RolePtr, scope_guard>{role, std::move(subscription)});
+        cache.add(role_id, role_with_guard);
+        role_catalog.insert(std::make_pair(role_id, make_weak_rwg(role_with_guard).value()));
+        return role_with_guard;
     }
 
-    return nullptr;
+    return {};
 }
 
 
-RolePtr RoleCache::getRole(const UUID & role_id)
+std::optional<RoleCache::RoleWithGuard> RoleCache::getRole(const UUID & role_id)
 {
     /// `mutex` is already locked.
 
     LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "top of getRole");
     auto role_from_cache = cache.get(role_id);
     if (role_from_cache)
-        return role_from_cache->first;
+        return *role_from_cache;
 
-    return makeRoleEntry(role_id);
+    return makeRole(role_id);
 }
 
 
@@ -201,12 +254,12 @@ void RoleCache::roleChanged(const UUID & role_id, const RolePtr & changed_role)
         else
         {
             LOG_TRACE(&Poco::Logger::get("RoleCache ()"), "role is enabled");
-            makeRoleEntry(role_id);
+            makeRole(role_id);
         }
     }
     else
     {
-        role_from_cache->first = changed_role;
+        role_from_cache->role = changed_role;
         cache.update(role_id, role_from_cache);
     }
     collectEnabledRoles(&notifications);

@@ -34,6 +34,7 @@ scope_guard EnabledRoles::subscribeForChanges(const OnChangeHandler & handler) c
 }
 
 
+/// populate notifications from handlers
 void EnabledRoles::setRolesInfo(const std::shared_ptr<const EnabledRolesInfo> & info_, scope_guard * notifications)
 {
     {
