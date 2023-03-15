@@ -251,17 +251,17 @@ void RowPolicyCache::mixFiltersFor(EnabledRowPolicies & enabled)
     {
         const auto & policy = *info.policy;
         bool match = info.roles->match(enabled.params.user_id, enabled.params.enabled_roles);
-        MixedFiltersKey key;
-        key.database = info.database_and_table_name->first;
-        key.table_name = info.database_and_table_name->second;
-        LOG_TRACE((&Poco::Logger::get("mixFiltersFor")), "db: {} : {}", key.database, key.table_name);
         for (auto filter_type : collections::range(0, RowPolicyFilterType::MAX))
         {
             auto filter_type_i = static_cast<size_t>(filter_type);
             if (info.parsed_filters[filter_type_i])
             {
-                key.filter_type = filter_type;
-                auto & mixer = database_mixers[key];  //  getting table level mixer
+                MixedFiltersKey key{info.database_and_table_name->first,
+                    info.database_and_table_name->second,
+                    filter_type};
+                LOG_TRACE((&Poco::Logger::get("mixFiltersFor")), "db: {} : {}", key.database, key.table_name);
+
+                auto & mixer = database_mixers[key];  //  getting database level mixer
                 mixer.database_and_table_name = info.database_and_table_name;
                 if (match)
                 {
@@ -277,21 +277,20 @@ void RowPolicyCache::mixFiltersFor(EnabledRowPolicies & enabled)
     {
         const auto & policy = *info.policy;
         bool match = info.roles->match(enabled.params.user_id, enabled.params.enabled_roles);
-        MixedFiltersKey table_key;
-        table_key.database = info.database_and_table_name->first;
-        table_key.table_name = info.database_and_table_name->second;
-        LOG_TRACE((&Poco::Logger::get("mixFiltersFor")), "table: {} : {}", table_key.database, table_key.table_name);
         for (auto filter_type : collections::range(0, RowPolicyFilterType::MAX))
         {
             auto filter_type_i = static_cast<size_t>(filter_type);
             if (info.parsed_filters[filter_type_i])
             {
-                table_key.filter_type = filter_type;
-                auto table_it = table_mixers.find(table_key);
+                MixedFiltersKey key{info.database_and_table_name->first,
+                    info.database_and_table_name->second,
+                    filter_type};
+                LOG_TRACE((&Poco::Logger::get("mixFiltersFor")), "table: {} : {}", key.database, key.table_name);
+                auto table_it = table_mixers.find(key);
                 if (table_it == table_mixers.end())
                 {
                     LOG_TRACE((&Poco::Logger::get("mixFiltersFor")), "table: not found, looking for db");
-                    MixedFiltersKey database_key = table_key;
+                    MixedFiltersKey database_key = key;
                     database_key.table_name = "*";
 
                     auto database_it = database_mixers.find(database_key);
@@ -299,12 +298,12 @@ void RowPolicyCache::mixFiltersFor(EnabledRowPolicies & enabled)
                     if (database_it == database_mixers.end())
                     {
                         LOG_TRACE((&Poco::Logger::get("mixFiltersFor")), "table: not found, database not found");
-                        table_it = table_mixers.try_emplace(table_key).first;
+                        table_it = table_mixers.try_emplace(key).first;
                     }
                     else
                     {
                         LOG_TRACE((&Poco::Logger::get("mixFiltersFor")), "table: not found, database found");
-                        table_it = table_mixers.insert({table_key, database_it->second}).first;
+                        table_it = table_mixers.insert({key, database_it->second}).first;
                     }
                 }
 
