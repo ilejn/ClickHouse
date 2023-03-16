@@ -35,7 +35,7 @@ namespace
             }
             if (is_any_table)
             {
-                res_table_name = "*";
+                res_table_name = "*"; // RowPolicy::DATABASE_MARK
             }
 
             /// If table is specified without DB it cannot be followed by "ON"
