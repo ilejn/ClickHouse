@@ -11,8 +11,6 @@
 #include <boost/smart_ptr/make_shared.hpp>
 #include <Core/Defines.h>
 
-#include <Common/logger_useful.h>
-
 
 namespace DB
 {

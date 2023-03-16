@@ -12,7 +12,6 @@ namespace DB
 class AccessControl;
 struct RolesOrUsersSet;
 struct RowPolicy;
-
 using RowPolicyPtr = std::shared_ptr<const RowPolicy>;
 
 /// Stores read and parsed row policies.
@@ -43,7 +42,6 @@ private:
     void rowPolicyRemoved(const UUID & policy_id);
     void mixFilters();
     void mixFiltersFor(EnabledRowPolicies & enabled);
-
 
     const AccessControl & access_control;
     PolicyMap database_policies;

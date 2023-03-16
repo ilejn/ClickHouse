@@ -51,6 +51,13 @@ DROP ROW POLICY 02131_filter_5 ON 02131_rqtable;
 SELECT 'None';
 SELECT * FROM 02131_rqtable;
 
+
+CREATE ROW POLICY 25341_filter_11 ON * USING x=1 AS permissive TO ALL;
+CREATE ROW POLICY 25341_filter_11_db ON 02131_rqtable USING x=2 AS permissive TO ALL;
+
+SELECT 'R1, R2: (x == 1) OR (x == 2)';
+SELECT * FROM 02131_rqtable;
+
 DROP TABLE 02131_rqtable;
 
 SELECT 'Check system.query_log';
