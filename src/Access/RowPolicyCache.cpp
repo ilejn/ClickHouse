@@ -299,7 +299,7 @@ void RowPolicyCache::mixFiltersFor(EnabledRowPolicies & enabled)
 
     auto mixed_filters = boost::make_shared<MixedFiltersMap>();
 
-    for (auto mixer_map_ptr :  { &table_mixers, &database_mixers})
+    for (auto * mixer_map_ptr : {&table_mixers, &database_mixers})
     {
         for (auto & [key, mixer] : *mixer_map_ptr)
         {
