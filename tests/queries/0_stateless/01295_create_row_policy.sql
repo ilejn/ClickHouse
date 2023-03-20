@@ -83,6 +83,7 @@ SHOW CREATE POLICY ON db.`*`;
 DROP POLICY db1_01295 ON db.*;
 DROP POLICY tbl1_01295 ON db.table;
 
+CREATE ROW POLICY any_01295 ON *.some_table USING 1 AS PERMISSIVE TO ALL; -- { clientError 62 }
 
 SELECT '-- system.row_policies';
 CREATE ROW POLICY p1_01295 ON db.table USING a<b AND c>d;

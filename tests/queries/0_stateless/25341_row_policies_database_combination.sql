@@ -45,6 +45,13 @@ CREATE ROW POLICY 25341_filter_5 ON 25341_db.* USING y>=20 AS restrictive TO ALL
 SELECT 'R1, R2, R3, R4, R5: ((x == 1) OR (x == 2) OR (x == 3)) AND (x <= 2) AND (y >= 20)';
 SELECT * FROM 25341_db.25341_rptable;
 
+CREATE TABLE 25341_db.25341_after_rp ENGINE = MergeTree ORDER BY x AS SELECT * FROM 25341_db.25341_rptable;
+SELECT * FROM 25341_db.25341_after_rp;
+
+-- does not matter if policies or table are created first
+SELECT 'R1, R2, R3, R4, R5: (x == 2) AND (y >= 20) FROM AFTER_RP';
+SELECT * FROM 25341_db.25341_after_rp;
+
 SELECT 'R1, R2, R3, R4, R5: (x == 2) AND (y >= 20) FROM ANOTHER';
 SELECT * FROM 25341_db.25341_rptable_another;
 

@@ -19,6 +19,9 @@ R1, R2, R3, R4: ((x == 1) OR (x == 2) OR (x == 3)) AND (x <= 2)
 2	20
 R1, R2, R3, R4, R5: ((x == 1) OR (x == 2) OR (x == 3)) AND (x <= 2) AND (y >= 20)
 2	20
+2	20
+R1, R2, R3, R4, R5: (x == 2) AND (y >= 20) FROM AFTER_RP
+2	20
 R1, R2, R3, R4, R5: (x == 2) AND (y >= 20) FROM ANOTHER
 2	20
 R2, R3, R4, R5: ((x == 2) OR (x == 3)) AND (x <= 2) AND (y >= 20)
