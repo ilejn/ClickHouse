@@ -16,7 +16,8 @@ namespace DB
 {
 namespace
 {
-    /// Accumulates filters from multiple row policies and joins them using the AND logical operation.
+    /// Helper to accumulate filters from multiple row policies and join them together
+    ///   by AND or OR logical operations.
     class FiltersMixer
     {
     public:
@@ -151,7 +152,6 @@ void RowPolicyCache::ensureAllRowPoliciesRead()
         auto policy = access_control.tryRead<RowPolicy>(id);
         if (policy)
         {
-            PolicyInfo policy_info(policy);
             all_policies.emplace(id, PolicyInfo(policy));
         }
     }
@@ -221,8 +221,8 @@ void RowPolicyCache::mixFiltersFor(EnabledRowPolicies & enabled)
     std::unordered_map<MixedFiltersKey, MixerWithNames, Hash> table_mixers;
     std::unordered_map<MixedFiltersKey, MixerWithNames, Hash> database_mixers;
 
-
-    // prepare database_mixers
+    /// populate database_mixers using database-level policies
+    ///  to aggregate (mix) rules per database
     for (const auto & [policy_id, info] : all_policies)
     {
         if (info.isDatabase())
@@ -250,8 +250,7 @@ void RowPolicyCache::mixFiltersFor(EnabledRowPolicies & enabled)
         }
     }
 
-
-    // prepare table_mixers
+    /// populate table_mixers using database_mixers and table-level policies
     for (const auto & [policy_id, info] : all_policies)
     {
         if (!info.isDatabase())
@@ -268,9 +267,9 @@ void RowPolicyCache::mixFiltersFor(EnabledRowPolicies & enabled)
                         filter_type};
                     auto table_it = table_mixers.find(key);
                     if (table_it == table_mixers.end())
-                    {   // no exact match - looking for database policies
+                    {   /// no exact match - create new mixer
                         MixedFiltersKey database_key = key;
-                        database_key.table_name = RowPolicy::DATABASE_MARK;
+                        database_key.table_name = RowPolicy::ANY_TABLE_MARK;
 
                         auto database_it = database_mixers.find(database_key);
 
@@ -280,12 +279,12 @@ void RowPolicyCache::mixFiltersFor(EnabledRowPolicies & enabled)
                         }
                         else
                         {
-                            // table policies are based on database ones
+                            /// table policies are based on database ones
                             table_it = table_mixers.insert({key, database_it->second}).first;
                         }
                     }
 
-                    auto & mixer = table_it->second; //  getting table level mixer
+                    auto & mixer = table_it->second; ///  getting table level mixer
                     mixer.database_and_table_name = info.database_and_table_name;
                     if (match)
                     {
@@ -299,6 +298,7 @@ void RowPolicyCache::mixFiltersFor(EnabledRowPolicies & enabled)
 
     auto mixed_filters = boost::make_shared<MixedFiltersMap>();
 
+    /// retrieve aggregated policies from mixers
     for (auto * mixer_map_ptr : {&table_mixers, &database_mixers})
     {
         for (auto & [key, mixer] : *mixer_map_ptr)

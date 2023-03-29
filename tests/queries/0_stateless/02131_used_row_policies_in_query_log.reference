@@ -31,9 +31,6 @@ None
 2
 3
 4
-R1, R2: (x == 1) OR (x == 2)
-1
-2
 Check system.query_log
 SELECT \'None\';	[]
 SELECT * FROM 02131_rqtable;	[]
@@ -57,6 +54,4 @@ SELECT \'R5: (x >= 2)\';	[]
 SELECT * FROM 02131_rqtable;	['`02131_filter_5` ON default.`02131_rqtable`']
 SELECT \'None\';	[]
 SELECT * FROM 02131_rqtable;	[]
-SELECT \'R1, R2: (x == 1) OR (x == 2)\';	[]
-SELECT * FROM 02131_rqtable;	['`25341_filter_11_db` ON default.`02131_rqtable`','`25341_filter_11` ON default.`*`']
 SELECT \'Check system.query_log\';	[]

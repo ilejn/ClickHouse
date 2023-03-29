@@ -36,7 +36,7 @@ RowPolicyFilterPtr EnabledRowPolicies::getFilter(const String & database, const 
     auto it = loaded->find({database, table_name, filter_type});
     if (it == loaded->end())
     {
-      it = loaded->find({database, RowPolicy::DATABASE_MARK, filter_type});
+        it = loaded->find({database, RowPolicy::ANY_TABLE_MARK, filter_type});
         if (it == loaded->end())
         {
             return {};
