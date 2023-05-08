@@ -473,18 +473,14 @@ class ClickHouseCluster:
 
         # available when with_kafka == True
         self.kafka_host = "kafka1"
-        self.kafka2_host = "kafka2"
         self.kafka_dir = os.path.join(self.instances_dir, "kafka")
         self._kafka_port = 0
-        self._kafka2_port = 0
         self.kafka_docker_id = None
-        self.kafka2_docker_id = None
         self.schema_registry_host = "schema-registry"
         self._schema_registry_port = 0
         self.schema_registry_auth_host = "schema-registry-auth"
         self._schema_registry_auth_port = 0
         self.kafka_docker_id = self.get_instance_docker_id(self.kafka_host)
-        self.kafka2_docker_id = self.get_instance_docker_id(self.kafka2_host)
 
         self.coredns_host = "coredns"
 
@@ -645,13 +641,6 @@ class ClickHouseCluster:
             return self._kafka_port
         self._kafka_port = get_free_port()
         return self._kafka_port
-
-    @property
-    def kafka2_port(self):
-        if self._kafka2_port:
-            return self._kafka2_port
-        self._kafka2_port = get_free_port()
-        return self._kafka2_port
 
     @property
     def schema_registry_port(self):
@@ -1174,12 +1163,9 @@ class ClickHouseCluster:
     ):
         self.with_kafka = True
         env_variables["KAFKA_HOST"] = self.kafka_host
-        env_variables["KAFKA2_HOST"] = self.kafka2_host
         env_variables["KAFKA_EXTERNAL_PORT"] = str(self.kafka_port)
-        env_variables["KAFKA2_EXTERNAL_PORT"] = str(self.kafka2_port)
         env_variables["SCHEMA_REGISTRY_DIR"] = instance.path + "/"
         env_variables["SCHEMA_REGISTRY_EXTERNAL_PORT"] = str(self.schema_registry_port)
-        env_variables["SCHEMA_REGISTRY_INTERNAL_PORT"] = "8081"
         env_variables["SCHEMA_REGISTRY_AUTH_EXTERNAL_PORT"] = str(self.schema_registry_auth_port)
         self.base_cmd.extend(
             ["--file", p.join(docker_compose_yml_dir, "docker_compose_kafka.yml")]
@@ -2514,6 +2500,7 @@ class ClickHouseCluster:
                 try:
                     sr_client._send_request(sr_client.url)
                     logging.debug("Connected to SchemaRegistry")
+                    # don't care about possible auth errors
                     sr_started = True
                     break
                 except Exception as ex:
@@ -2728,7 +2715,6 @@ class ClickHouseCluster:
                 )
                 self.up_called = True
                 self.wait_kafka_is_available(self.kafka_docker_id, self.kafka_port)
-                # self.wait_kafka_is_available(self.kafka2_docker_id, self.kafka2_port)
                 self.wait_schema_registry_to_start()
 
             if self.with_kerberized_kafka and self.base_kerberized_kafka_cmd:
