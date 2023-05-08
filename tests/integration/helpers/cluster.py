@@ -2502,45 +2502,26 @@ class ClickHouseCluster:
         raise Exception("Can't wait Azurite to start")
 
     def wait_schema_registry_to_start(self, timeout=180):
-        reg_url="http://localhost:{}".format(self.schema_registry_port)
-        arg={'url':reg_url}
-        sr_client = CachedSchemaRegistryClient(arg)
+        for port in self.schema_registry_port, self.schema_registry_auth_port:
+            reg_url="http://localhost:{}".format(port)
+            arg={'url':reg_url}
+            sr_client = CachedSchemaRegistryClient(arg)
 
-        start = time.time()
-        sr_started = False
-        sr_auth_started = False
-        while time.time() - start < timeout:
-            try:
-                sr_client._send_request(sr_client.url)
-                logging.debug("Connected to SchemaRegistry")
-                sr_started = True
-                break
-            except Exception as ex:
-                logging.debug(("Can't connect to SchemaRegistry: %s", str(ex)))
-                time.sleep(1)
+            start = time.time()
+            sr_started = False
+            sr_auth_started = False
+            while time.time() - start < timeout:
+                try:
+                    sr_client._send_request(sr_client.url)
+                    logging.debug("Connected to SchemaRegistry")
+                    sr_started = True
+                    break
+                except Exception as ex:
+                    logging.debug(("Can't connect to SchemaRegistry: %s", str(ex)))
+                    time.sleep(1)
 
-        if not sr_started:
-            raise Exception("Can't wait Schema Registry to start")
-
-
-        # name/pass not required - just send request
-        auth_reg_url="http://localhost:{}".format(self.schema_registry_auth_port)
-        auth_arg={'url':auth_reg_url,'basic.auth.credentials.source':'USER_INFO','basic.auth.user.info':'schemauser:letmein'}
-
-
-        sr_auth_client = CachedSchemaRegistryClient(auth_arg)
-        while time.time() - start < timeout:
-            try:
-                sr_auth_client._send_request(sr_auth_client.url)
-                logging.debug("Connected to SchemaRegistry with auth")
-                sr_auth_started = True
-                break
-            except Exception as ex:
-                logging.debug(("Can't connect to SchemaRegistry with auth: %s", str(ex)))
-                time.sleep(1)
-
-        if not sr_auth_started:
-            raise Exception("Can't wait Schema Registry with auth  to start")
+            if not sr_started:
+                raise Exception("Can't wait Schema Registry to start")
 
     def wait_cassandra_to_start(self, timeout=180):
         self.cassandra_ip = self.get_instance_ip(self.cassandra_host)

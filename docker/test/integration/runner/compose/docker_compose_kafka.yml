@@ -36,8 +36,8 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     depends_on:
       - kafka_zookeeper
-    # security_opt:
-    #   - label:disable
+    security_opt:
+      - label:disable
 
   schema-registry:
     # image: confluentinc/cp-schema-registry:5.2.0
@@ -47,23 +47,14 @@ services:
       - ${SCHEMA_REGISTRY_EXTERNAL_PORT}:${SCHEMA_REGISTRY_EXTERNAL_PORT}
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      # SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: PLAINTEXT
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka1:19092
-      # SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: kafka_zookeeper:2181
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:${SCHEMA_REGISTRY_EXTERNAL_PORT}
-      SCHEMA_REGISTRY_GROUP_ID: noauth
       SCHEMA_REGISTRY_SCHEMA_REGISTRY_GROUP_ID: noauth
-      SCHEMA_REGISTRY_KAFKASTORE_GROUP_ID: noauth
-      SCHEMA_REGISTRY_ZK_NAMESPACE: noauth
-      SCHEMA_REGISTRY_KAFKASTORE_TOPIC: _schemasnoauth
-      SCHEMA_REGISTRY_CLIENT_ID: noauth
-      SCHEMA_REGISTRY_DEBUG: 'true'
-      SCHEMA_REGISTRY_LEADER_ELIGIBILITY: 'true'
     depends_on:
       - kafka_zookeeper
       - kafka1
-    # security_opt:
-    #   - label:disable
+    security_opt:
+      - label:disable
 
   schema-registry-auth:
     # image: confluentinc/cp-schema-registry:5.2.0
@@ -72,24 +63,14 @@ services:
     ports:
       - ${SCHEMA_REGISTRY_AUTH_EXTERNAL_PORT}:${SCHEMA_REGISTRY_AUTH_EXTERNAL_PORT}
     environment:
-      # SCHEMA_REGISTRY_EXTERNAL_PORT: ${SCHEMA_REGISTRY_AUTH_EXTERNAL_PORT}
       SCHEMA_REGISTRY_HOST_NAME: schema-registry-auth
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:${SCHEMA_REGISTRY_AUTH_EXTERNAL_PORT}
-      # SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: PLAINTEXT
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka1:19092
-      # SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: kafka_zookeeper:2181
       SCHEMA_REGISTRY_AUTHENTICATION_METHOD: BASIC
       SCHEMA_REGISTRY_AUTHENTICATION_ROLES: user
       SCHEMA_REGISTRY_AUTHENTICATION_REALM: RealmFooBar
       SCHEMA_REGISTRY_OPTS: "-Djava.security.auth.login.config=/etc/schema-registry/secrets/schema_registry_jaas.conf"
-      SCHEMA_REGISTRY_GROUP_ID: auth
       SCHEMA_REGISTRY_SCHEMA_REGISTRY_GROUP_ID: auth
-      SCHEMA_REGISTRY_KAFKASTORE_GROUP_ID: auth
-      SCHEMA_REGISTRY_ZK_NAMESPACE: auth
-      SCHEMA_REGISTRY_KAFKASTORE_TOPIC: _schemasauth
-      SCHEMA_REGISTRY_CLIENT_ID: auth
-      SCHEMA_REGISTRY_DEBUG: 'true'
-      SCHEMA_REGISTRY_LEADER_ELIGIBILITY: 'true'
     volumes:
       - ${SCHEMA_REGISTRY_DIR:-}/secrets:/etc/schema-registry/secrets
     depends_on:
