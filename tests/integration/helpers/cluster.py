@@ -2523,6 +2523,7 @@ class ClickHouseCluster:
             raise Exception("Can't wait Schema Registry to start")
 
 
+        # name/pass not required - just send request
         auth_reg_url="http://localhost:{}".format(self.schema_registry_auth_port)
         auth_arg={'url':auth_reg_url,'basic.auth.credentials.source':'USER_INFO','basic.auth.user.info':'schemauser:letmein'}
 
