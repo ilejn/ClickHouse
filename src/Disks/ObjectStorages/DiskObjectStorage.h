@@ -215,11 +215,9 @@ public:
     bool supportsChmod() const override { return metadata_storage->supportsChmod(); }
     void chmod(const String & path, mode_t mode) override;
 
-private:
-
-    /// Create actual disk object storage transaction for operations
-    /// execution.
-    DiskTransactionPtr createObjectStorageTransaction();
+protected:
+    /// Create actual disk object storage transaction for operations execution.
+    virtual DiskTransactionPtr createObjectStorageTransaction();
 
     String getReadResourceName() const;
     String getWriteResourceName() const;
