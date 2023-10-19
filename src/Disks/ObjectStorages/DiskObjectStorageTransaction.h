@@ -50,9 +50,9 @@ using DiskObjectStorageOperations = std::vector<DiskObjectStorageOperation>;
 ///
 /// If something wrong happen on step 1 or 2 reverts all applied operations.
 /// If finalize failed -- nothing is reverted, garbage is left in blob storage.
-struct DiskObjectStorageTransaction final : public IDiskTransaction, std::enable_shared_from_this<DiskObjectStorageTransaction>
+struct DiskObjectStorageTransaction : public IDiskTransaction, std::enable_shared_from_this<DiskObjectStorageTransaction>
 {
-private:
+protected:
     IObjectStorage & object_storage;
     IMetadataStorage & metadata_storage;
 
@@ -62,6 +62,22 @@ private:
     DiskObjectStorageRemoteMetadataRestoreHelper * metadata_helper;
 
     DiskObjectStorageOperations operations_to_execute;
+
+    void writeFileUsingBlobWritingFunctionOps(
+        const String & path,
+        WriteMode mode,
+        WriteBlobFunction && write_blob_function,
+        StoredObject& object);
+
+    std::unique_ptr<WriteBufferFromFileBase> writeFileOps( /// NOLINT
+        const String & path,
+        size_t buf_size,
+        WriteMode mode,
+        const WriteSettings & settings,
+        bool autocommit,
+        StoredObject& object);
+
+    virtual std::shared_ptr<DiskObjectStorageTransaction> shared() { return shared_from_this(); }
 
 public:
     DiskObjectStorageTransaction(
@@ -117,7 +133,4 @@ public:
     void setReadOnly(const std::string & path) override;
     void createHardLink(const std::string & src_path, const std::string & dst_path) override;
 };
-
-using DiskObjectStorageTransactionPtr = std::shared_ptr<DiskObjectStorageTransaction>;
-
 }
