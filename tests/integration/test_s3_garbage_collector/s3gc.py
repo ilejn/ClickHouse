@@ -85,6 +85,7 @@ parser.add_option(
 parser.add_option(
     "--keep-data",
     "--keepdata",
+    action="store_true",
     dest="keepdata",
     default=False,
     help="keep auxiliary data in ClickHouse table",
@@ -92,6 +93,7 @@ parser.add_option(
 parser.add_option(
     "--collect-only",
     "--collectonly",
+    action="store_true",
     dest="collectonly",
     default=False,
     help="keep auxiliary data in ClickHouse table",
@@ -99,6 +101,7 @@ parser.add_option(
 parser.add_option(
     "--use-collected",
     "--usecollected",
+    action="store_true",
     dest="usecollected",
     default=False,
     help="auxiliary data is already collected in ClickHouse table",
@@ -115,7 +118,15 @@ parser.add_option(
     "--batchsize",
     dest="batchsize",
     default=1024,
-    help="insert to ClickHouse at once",
+    help="number of rows to insert to ClickHouse at once",
+)
+parser.add_option(
+    "--cluster",
+    "--cluster-name",
+    "--clustername",
+    dest="clustername",
+    default="",
+    help="consider an objects unused if there is no host in the cluster refers the object",
 )
 
 parser.add_option(
@@ -189,12 +200,17 @@ if not options.usecollected:
         ch_client.insert(tname, objs, column_names=["objpath"])
 
 if not options.collectonly:
-    with ch_client.query_row_block_stream(
-        f"""
-    SELECT s3o.objpath FROM {tname} AS s3o LEFT ANTI JOIN system.remote_data_paths AS rdp ON rdp.remote_path = s3o.objpath
+    srdp = "system.remote_data_paths"
+    if options.clustername:
+        srdp = f"clusterAllReplicas({options.clustername}, {srdp})"
+
+    antijoin = f"""
+    SELECT s3o.objpath FROM {tname} AS s3o LEFT ANTI JOIN {srdp} AS rdp ON rdp.remote_path = s3o.objpath
     AND rdp.disk_name='{options.s3diskname}'
     """
-    ) as stream:
+    logging.info(antijoin)
+
+    with ch_client.query_row_block_stream(antijoin) as stream:
         for block in stream:
             for row in block:
                 logging.debug(row[0])

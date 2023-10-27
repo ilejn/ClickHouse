@@ -64,7 +64,7 @@ SETTINGS storage_policy = 's3'
         [
             "bash",
             "-c",
-            f"python3 /s3gc.py --s3-ip={cluster.minio_ip} --s3-bucket={cluster.minio_bucket} --s3-access-key=minio --s3-secret-key=minio123 --s3-ssl-cert-file=/public.crt --debug > /s3gc.log 2>&1",
+            f"python3 /s3gc.py --s3-ip={cluster.minio_ip} --s3-bucket={cluster.minio_bucket} --s3-access-key=minio --s3-secret-key=minio123 --s3-ssl-cert-file=/public.crt --debug --cluster=default > /s3gc.log 2>&1",
         ],
         detach=True,
         user="root",
