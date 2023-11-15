@@ -4,6 +4,7 @@ import clickhouse_connect
 from optparse import OptionParser
 import urllib3
 import logging
+import datetime
 
 usage = """
 %prog [options]
@@ -124,7 +125,7 @@ parser.add_option(
     "--total-num",
     "--total",
     dest="total",
-    type = "int"
+    type = "int",
     help="number of objects to process. Cam be used in conjunction with start-after",
 )
 parser.add_option(
@@ -132,7 +133,7 @@ parser.add_option(
     "--startafter",
     "--after",
     dest="after",
-    type = "int"
+    type = "int",
     help="Object name to start after. If not specified, traversing objects from the beginning",
 )
 parser.add_option(
@@ -142,6 +143,15 @@ parser.add_option(
     dest="clustername",
     default="",
     help="consider an objects unused if there is no host in the cluster refers the object",
+)
+parser.add_option(
+    "--age",
+    "--hours",
+    "--age-hours",
+    dest="age",
+    type = "int",
+    default=0,
+    help="process only objects older than specified",
 )
 
 parser.add_option(
@@ -167,8 +177,6 @@ if options.debug:
     logging.getLogger().setLevel(logging.DEBUG)
 if options.silent:
     logging.getLogger().setLevel(logging.CRITICAL)
-
-logging.info("aaa")
 
 logging.info(
     f"Connecting to ClickHouse, host={options.chhost}, port={options.chport}, username={options.chuser}, password={options.chpass}"
@@ -213,19 +221,23 @@ if not options.usecollected:
             batchsize = rest_row_nums
         for batch_element in range(1, batchsize):
             try:
-                objs.append([next(objects).object_name])
-                row_nums += 1
+                obj = next(objects)
+                delta = datetime.datetime.now(datetime.timezone.utc) - obj.last_modified
+                hours = (int(delta.seconds / 3600))
+                if hours >= options.age:
+                    objs.append([obj.object_name])
             except StopIteration:
                 go_on = False
         ch_client.insert(tname, objs, column_names=["objpath"])
-        rest_row_nums -= len(objs)
-        if rest_row_nums == 0:
-            if not options.silent:
-                if len(objs):
-                    print(f"s3gc: {objs[-1]}")
-                else:
-                    print(f"s3gc: No object")
-            break
+        if rest_row_nums is not None:
+            rest_row_nums -= len(objs)
+            if rest_row_nums == 0:
+                if not options.silent:
+                    if len(objs):
+                        print(f"s3gc: {objs[-1]}")
+                    else:
+                        print(f"s3gc: No object")
+                break
 
 if not options.collectonly:
     srdp = "system.remote_data_paths"
