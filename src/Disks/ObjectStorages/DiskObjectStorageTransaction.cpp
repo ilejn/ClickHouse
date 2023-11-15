@@ -504,6 +504,7 @@ std::unique_ptr<WriteBufferFromFileBase> DiskObjectStorageTransaction::writeFile
 
     /// seems ok
     object = StoredObject(object_key.serialize());
+    object.local_path = path;
     std::function<void(size_t count)> create_metadata_callback;
 
     if (autocommit)
