@@ -118,6 +118,7 @@ parser.add_option(
     "--batch-size",
     "--batchsize",
     dest="batchsize",
+    type = "int",
     default=1024,
     help="number of rows to insert to ClickHouse at once",
 )
@@ -133,7 +134,6 @@ parser.add_option(
     "--startafter",
     "--after",
     dest="after",
-    type = "int",
     help="Object name to start after. If not specified, traversing objects from the beginning",
 )
 parser.add_option(
@@ -151,7 +151,7 @@ parser.add_option(
     dest="age",
     type = "int",
     default=0,
-    help="process only objects older than specified",
+    help="process only objects older than specified, it is assumed that timezone is UTC",
 )
 
 parser.add_option(
@@ -216,10 +216,7 @@ if not options.usecollected:
     rest_row_nums = options.total # None if not set
     while go_on:
         objs = []
-        batchsize = options.batchsize
-        if rest_row_nums is not None and rest_row_nums < batchsize:
-            batchsize = rest_row_nums
-        for batch_element in range(1, batchsize):
+        for batch_element in range(0, options.batchsize):
             try:
                 obj = next(objects)
                 delta = datetime.datetime.now(datetime.timezone.utc) - obj.last_modified
@@ -231,7 +228,8 @@ if not options.usecollected:
         ch_client.insert(tname, objs, column_names=["objpath"])
         if rest_row_nums is not None:
             rest_row_nums -= len(objs)
-            if rest_row_nums == 0:
+            if rest_row_nums == 0 or go_on == False:
+                go_on = False
                 if not options.silent:
                     if len(objs):
                         print(f"s3gc: {objs[-1]}")
@@ -246,15 +244,18 @@ if not options.collectonly:
 
     antijoin = f"""
     SELECT s3o.objpath FROM {tname} AS s3o LEFT ANTI JOIN {srdp} AS rdp ON rdp.remote_path = s3o.objpath
-    AND rdp.disk_name='{options.s3diskname}'
-    """
+    AND rdp.disk_name='{options.s3diskname}'"""
     logging.info(antijoin)
 
+    num_removed = 0
     with ch_client.query_row_block_stream(antijoin) as stream:
         for block in stream:
             for row in block:
                 logging.debug(row[0])
                 minio_client.remove_object(options.s3bucket, row[0])
+                num_removed += 1
+
+    logging.info(f"{num_removed} objects are removed")
 
     if not options.keepdata:
         logging.info(f"truncating {tname}")
