@@ -147,5 +147,8 @@ public:
     void chmod(const String & path, mode_t mode) override;
     void setReadOnly(const std::string & path) override;
     void createHardLink(const std::string & src_path, const std::string & dst_path) override;
+
+    bool lock(std::string_view path, DiskLockMode mode) override;
+    void unlock(std::string_view path) override;
 };
 }
