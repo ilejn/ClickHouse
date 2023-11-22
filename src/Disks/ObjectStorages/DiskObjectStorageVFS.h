@@ -34,6 +34,7 @@ public:
     bool supportZeroCopyReplication() const override { return false; }
     DiskObjectStoragePtr createDiskObjectStorage() override;
     String getStructure() const;
+    UInt64 getGcSleep() const { return gc_thread_sleep_ms; }
 
 private:
     // TODO myrrc not sure we should couple object storage and garbage collector this way
@@ -41,6 +42,8 @@ private:
     // a command which we surely don't want to do
     friend class ObjectStorageVFSGCThread;
     std::unique_ptr<ObjectStorageVFSGCThread> gc_thread;
+
+    UInt64 gc_thread_sleep_ms;
 
     zkutil::ZooKeeperPtr zookeeper;
 

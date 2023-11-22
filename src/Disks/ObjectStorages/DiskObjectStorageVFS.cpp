@@ -22,9 +22,11 @@ DiskObjectStorageVFS::DiskObjectStorageVFS(
         std::move(object_storage_),
         config,
         config_prefix)
+    , gc_thread_sleep_ms(config.getUInt64(config_prefix + ".object_storage_vfs_gc_period", 10'000))
     , zookeeper(std::move(zookeeper_))
 {
     zookeeper->createAncestors(VFS_LOG_ITEM);
+
 }
 
 DiskObjectStorageVFS::~DiskObjectStorageVFS() = default;
