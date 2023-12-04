@@ -654,11 +654,12 @@ try
     registerTableFunctions();
     registerStorages();
     registerDictionaries();
-    registerDisks(/* global_skip_access_check= */ false);
+    registerDisks(/* global_skip_access_check= */ false, /* allow_vfs */ false);
     registerFormats();
     registerRemoteFileMetadatas();
     registerSchedulerNodes();
     registerResourceManagers();
+//    registerDisks(/* global_skip_access_check= */ false, /* allow_vfs */ true);
 
     CurrentMetrics::set(CurrentMetrics::Revision, ClickHouseRevision::getVersionRevision());
     CurrentMetrics::set(CurrentMetrics::VersionInteger, ClickHouseRevision::getVersionInteger());
@@ -1491,6 +1492,7 @@ try
 #endif
                 });
         }
+        // registerDisks(/* global_skip_access_check= */ false, /* allow_vfs */ true);
 #else
         throw Exception(ErrorCodes::SUPPORT_IS_DISABLED, "ClickHouse server built without NuRaft library. Cannot use internal coordination.");
 #endif
