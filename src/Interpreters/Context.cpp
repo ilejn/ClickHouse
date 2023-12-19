@@ -4238,10 +4238,11 @@ void Context::setGoogleProtosPath(const String & path)
     shared->google_protos_path = path;
 }
 
-Context::SampleBlockCache & Context::getSampleBlockCache() const
+Context::SampleBlockCacheHelper Context::getSampleBlockCache() const
 {
     assert(hasQueryContext());
-    return getQueryContext()->sample_block_cache;
+    auto ctx = getQueryContext();
+    return {ctx->sample_block_cache_holder.cache, ctx->sample_block_cache_holder.mtx};
 }
 
 

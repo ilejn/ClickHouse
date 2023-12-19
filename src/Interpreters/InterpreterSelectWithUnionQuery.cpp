@@ -270,20 +270,28 @@ Block InterpreterSelectWithUnionQuery::getSampleBlock(const ASTPtr & query_ptr_,
         return InterpreterSelectWithUnionQuery(query_ptr_, context_, std::move(options.analyze())).getSampleBlock();
     }
 
-    auto & cache = context_->getSampleBlockCache();
     /// Using query string because query_ptr changes for every internal SELECT
     auto key = queryToString(query_ptr_);
-    if (cache.find(key) != cache.end())
     {
-        return cache[key];
+        auto cache_helper = context_->getSampleBlockCache();
+        auto it = cache_helper.cache.find(key);
+
+        if (it != cache_helper.cache.end())
+        {
+            return it->second;
+        }
     }
+
 
     SelectQueryOptions options;
     if (is_subquery)
         options = options.subquery();
     if (is_create_parameterized_view)
         options = options.createParameterizedView();
-    return cache[key] = InterpreterSelectWithUnionQuery(query_ptr_, context_, std::move(options.analyze())).getSampleBlock();
+    {
+        auto cache_helper = context_->getSampleBlockCache();
+        return cache_helper.cache[key] = InterpreterSelectWithUnionQuery(query_ptr_, context_, std::move(options.analyze())).getSampleBlock();
+    }
 }
 
 

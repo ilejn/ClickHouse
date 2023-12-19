@@ -460,7 +460,30 @@ public:
 
 protected:
     using SampleBlockCache = std::unordered_map<std::string, Block>;
-    mutable SampleBlockCache sample_block_cache;
+    struct SampleBlockCacheHolder
+    {
+        mutable std::mutex mtx{};
+        mutable SampleBlockCache cache;
+        SampleBlockCacheHolder() = default;
+        SampleBlockCacheHolder(const SampleBlockCacheHolder & rhs)
+        {
+            std::lock_guard<std::mutex> lock(rhs.mtx);
+            cache = rhs.cache;
+        }
+    };
+    SampleBlockCacheHolder sample_block_cache_holder;
+
+    struct SampleBlockCacheHelper
+    {
+        std::lock_guard<std::mutex> lck;
+        SampleBlockCache & cache;
+        SampleBlockCacheHelper(SampleBlockCache & cache_, std::mutex & mtx)
+            : lck(mtx)
+            , cache(cache_)
+        {
+        }
+    };
+
 
     PartUUIDsPtr part_uuids; /// set of parts' uuids, is used for query parts deduplication
     PartUUIDsPtr ignored_part_uuids; /// set of parts' uuids are meant to be excluded from query processing
@@ -1154,7 +1177,7 @@ public:
     String getGoogleProtosPath() const;
     void setGoogleProtosPath(const String & path);
 
-    SampleBlockCache & getSampleBlockCache() const;
+    SampleBlockCacheHelper getSampleBlockCache() const;
 
     /// Query parameters for prepared statements.
     bool hasQueryParameters() const;
