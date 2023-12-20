@@ -459,31 +459,48 @@ public:
     KitchenSink kitchen_sink;
 
 protected:
-    using SampleBlockCache = std::unordered_map<std::string, Block>;
-    struct SampleBlockCacheHolder
+    // using SampleBlockCache = std::unordered_map<std::string, Block>;
+    struct SampleBlockCache
     {
         mutable std::mutex mtx{};
-        mutable SampleBlockCache cache;
-        SampleBlockCacheHolder() = default;
-        SampleBlockCacheHolder(const SampleBlockCacheHolder & rhs)
+        std::unordered_map<std::string, Block> cache;
+        SampleBlockCache() = default;
+        SampleBlockCache(const SampleBlockCache & rhs)
         {
             std::lock_guard<std::mutex> lock(rhs.mtx);
             cache = rhs.cache;
         }
-    };
-    SampleBlockCacheHolder sample_block_cache_holder;
-
-    struct SampleBlockCacheHelper
-    {
-        std::lock_guard<std::mutex> lck;
-        SampleBlockCache & cache;
-        SampleBlockCacheHelper(SampleBlockCache & cache_, std::mutex & mtx)
-            : lck(mtx)
-            , cache(cache_)
+        std::optional<Block> get(const std::string & key) const
         {
+            std::lock_guard<std::mutex> lock(mtx);
+            auto it = cache.find(key);
+            if (it == cache.end())
+            {
+                return {};
+            }
+            else
+            {
+                return {it->second};
+            }
+        }
+        const Block & add(const std::string & key, const Block & val)
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            return cache[key] = val;
         }
     };
+    mutable SampleBlockCache sample_block_cache;
 
+    // struct SampleBlockCacheHelper
+    // {
+    //     std::lock_guard<std::mutex> lck;
+    //     SampleBlockCache & cache;
+    //     SampleBlockCacheHelper(SampleBlockCache & cache_, std::mutex & mtx)
+    //         : lck(mtx)
+    //         , cache(cache_)
+    //     {
+    //     }
+    // };
 
     PartUUIDsPtr part_uuids; /// set of parts' uuids, is used for query parts deduplication
     PartUUIDsPtr ignored_part_uuids; /// set of parts' uuids are meant to be excluded from query processing
@@ -1177,7 +1194,17 @@ public:
     String getGoogleProtosPath() const;
     void setGoogleProtosPath(const String & path);
 
-    SampleBlockCacheHelper getSampleBlockCache() const;
+    // SampleBlockCacheHelper getSampleBlockCache() const;
+    std::optional<Block> getFromSampleBlockCache(const std::string & key) const
+    {
+        return sample_block_cache.get(key);
+    }
+
+    Block addToSampleBlockCache(const std::string & key, const Block & val) const
+    {
+        return sample_block_cache.add(key, val);
+    }
+
 
     /// Query parameters for prepared statements.
     bool hasQueryParameters() const;
