@@ -4241,8 +4241,7 @@ void Context::setGoogleProtosPath(const String & path)
 Context::SampleBlockCache & Context::getSampleBlockCache() const
 {
     assert(hasQueryContext());
-    auto ctx = getQueryContext();
-    return ctx->sample_block_cache;
+    return getQueryContext()->sample_block_cache;
 }
 
 std::optional<Block> Context::getFromSampleBlockCache(const std::string & key) const
