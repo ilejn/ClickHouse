@@ -283,9 +283,7 @@ Block InterpreterSelectWithUnionQuery::getSampleBlock(const ASTPtr & query_ptr_,
         options = options.subquery();
     if (is_create_parameterized_view)
         options = options.createParameterizedView();
-    {
-        return context_->addToSampleBlockCache(key, InterpreterSelectWithUnionQuery(query_ptr_, context_, std::move(options.analyze())).getSampleBlock());
-    }
+    return context_->addToSampleBlockCache(key, InterpreterSelectWithUnionQuery(query_ptr_, context_, std::move(options.analyze())).getSampleBlock());
 }
 
 
