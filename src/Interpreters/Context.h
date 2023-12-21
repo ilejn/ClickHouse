@@ -476,17 +476,21 @@ protected:
             auto it = cache.find(key);
             if (it == cache.end())
             {
+                std::cerr << "(Context) no sample block in cache, key " << key << ",addr " << reinterpret_cast<const void*>(&cache) << std::endl;
                 return {};
             }
             else
             {
+                std::cerr << "(Context) got sample block from cache, key " << key << ",addr " << reinterpret_cast<const void*>(&cache) << std::endl;
                 return {it->second};
             }
         }
         const Block & add(const std::string & key, const Block & val)
         {
+            std::cerr << "(Context) adding sample block to cache, key " << key << ",addr " << reinterpret_cast<const void*>(&cache) << std::endl;
             std::lock_guard<std::mutex> lock(mtx);
-            return cache[key] = val;
+            cache[key] = val;
+            return val;
         }
     };
     mutable SampleBlockCache sample_block_cache;
@@ -1194,15 +1198,15 @@ public:
     String getGoogleProtosPath() const;
     void setGoogleProtosPath(const String & path);
 
-    // SampleBlockCacheHelper getSampleBlockCache() const;
+    SampleBlockCache getSampleBlockCache() const;
     std::optional<Block> getFromSampleBlockCache(const std::string & key) const
     {
-        return sample_block_cache.get(key);
+        return getSampleBlockCache().get(key);
     }
 
     Block addToSampleBlockCache(const std::string & key, const Block & val) const
     {
-        return sample_block_cache.add(key, val);
+        return getSampleBlockCache().add(key, val);
     }
 
 
