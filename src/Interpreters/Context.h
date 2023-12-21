@@ -459,7 +459,6 @@ public:
     KitchenSink kitchen_sink;
 
 protected:
-    // using SampleBlockCache = std::unordered_map<std::string, Block>;
     struct SampleBlockCache
     {
         mutable std::mutex mtx{};
@@ -473,38 +472,22 @@ protected:
         std::optional<Block> get(const std::string & key) const
         {
             std::lock_guard<std::mutex> lock(mtx);
-            auto it = cache.find(key);
-            if (it == cache.end())
+            if (auto it = cache.find(key); it == cache.end())
             {
-                std::cerr << "(Context) no sample block in cache, key " << key << ",addr " << reinterpret_cast<const void*>(&cache) << std::endl;
                 return {};
             }
             else
             {
-                std::cerr << "(Context) got sample block from cache, key " << key << ",addr " << reinterpret_cast<const void*>(&cache) << std::endl;
                 return {it->second};
             }
         }
         const Block & add(const std::string & key, const Block & val)
         {
-            std::cerr << "(Context) adding sample block to cache, key " << key << ",addr " << reinterpret_cast<const void*>(&cache) << std::endl;
             std::lock_guard<std::mutex> lock(mtx);
-            cache[key] = val;
-            return val;
+            return cache[key] = val;
         }
     };
     mutable SampleBlockCache sample_block_cache;
-
-    // struct SampleBlockCacheHelper
-    // {
-    //     std::lock_guard<std::mutex> lck;
-    //     SampleBlockCache & cache;
-    //     SampleBlockCacheHelper(SampleBlockCache & cache_, std::mutex & mtx)
-    //         : lck(mtx)
-    //         , cache(cache_)
-    //     {
-    //     }
-    // };
 
     PartUUIDsPtr part_uuids; /// set of parts' uuids, is used for query parts deduplication
     PartUUIDsPtr ignored_part_uuids; /// set of parts' uuids are meant to be excluded from query processing
@@ -1198,17 +1181,8 @@ public:
     String getGoogleProtosPath() const;
     void setGoogleProtosPath(const String & path);
 
-    SampleBlockCache getSampleBlockCache() const;
-    std::optional<Block> getFromSampleBlockCache(const std::string & key) const
-    {
-        return getSampleBlockCache().get(key);
-    }
-
-    Block addToSampleBlockCache(const std::string & key, const Block & val) const
-    {
-        return getSampleBlockCache().add(key, val);
-    }
-
+    std::optional<Block> getFromSampleBlockCache(const std::string & key) const;
+    Block addToSampleBlockCache(const std::string & key, const Block & val) const;
 
     /// Query parameters for prepared statements.
     bool hasQueryParameters() const;
@@ -1362,6 +1336,8 @@ private:
 
     /// Expect lock for shared->clusters_mutex
     std::shared_ptr<Clusters> getClustersImpl(std::lock_guard<std::mutex> & lock) const;
+
+    SampleBlockCache & getSampleBlockCache() const;
 
     /// Throttling
 public:
