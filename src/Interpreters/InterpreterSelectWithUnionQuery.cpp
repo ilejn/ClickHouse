@@ -275,7 +275,7 @@ Block InterpreterSelectWithUnionQuery::getSampleBlock(const ASTPtr & query_ptr_,
     auto block_opt = context_->getFromSampleBlockCache(key);
     if (block_opt)
     {
-        return block_opt.value();
+        return std::move(block_opt.value());
     }
 
     SelectQueryOptions options;

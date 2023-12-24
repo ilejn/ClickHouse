@@ -461,17 +461,17 @@ public:
 protected:
     struct SampleBlockCache
     {
-        mutable std::mutex mtx{};
+        mutable SharedMutex mtx{};
         std::unordered_map<std::string, Block> cache;
         SampleBlockCache() = default;
         SampleBlockCache(const SampleBlockCache & rhs)
         {
-            std::lock_guard<std::mutex> lock(rhs.mtx);
+            std::unique_lock<SharedMutex> lock(rhs.mtx);
             cache = rhs.cache;
         }
         std::optional<Block> get(const std::string & key) const
         {
-            std::lock_guard<std::mutex> lock(mtx);
+            std::shared_lock<SharedMutex> lock(mtx);
             if (auto it = cache.find(key); it == cache.end())
             {
                 return {};
@@ -483,7 +483,7 @@ protected:
         }
         const Block & add(const std::string & key, const Block & val)
         {
-            std::lock_guard<std::mutex> lock(mtx);
+            std::unique_lock<SharedMutex> lock(mtx);
             return cache[key] = val;
         }
     };
