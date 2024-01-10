@@ -29,8 +29,9 @@ DiskObjectStorageVFS::DiskObjectStorageVFS(
         config,
         config_prefix)
     , enable_gc(enable_gc_)
-    , gc_sleep_ms(config.getUInt64(config_prefix + ".vfs_gc_sleep_ms", 10'000))
     , traits(VFSTraits{name_})
+    , settings(config, config_prefix)
+    // , gc_sleep_ms(config.getUInt64(config_prefix + ".vfs_gc_sleep_ms", 10'000))
 {
     if (send_metadata)
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "VFS doesn't support send_metadata");
