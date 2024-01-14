@@ -28,6 +28,6 @@ private:
     StoredObject getSnapshotObject(size_t logpointer) const;
 
     // returns true if we skip the run
-    bool pass(size_t batch_size, int64_t mtime) const;
+    bool skip(size_t batch_size, int64_t mtime) const;
 };
 }

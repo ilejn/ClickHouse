@@ -65,19 +65,23 @@ void ObjectStorageVFSGCThread::run() const
     else if (code != ZOK)
         throw Coordination::Exception(code);
 
-    bool successful_run = false;
+    bool successful_run = false, skip_run = false;
     SCOPE_EXIT(if (!successful_run)
         {
-            ProfileEvents::increment(ProfileEvents::VFSGcRunsException);
+            if (!skip_run)
+            {
+                ProfileEvents::increment(ProfileEvents::VFSGcRunsException);
+            }
             storage.zookeeper()->remove(lock_path);
         }
         ProfileEvents::increment(ProfileEvents::VFSGcTotalMicroseconds, stop_watch.elapsedMicroseconds()));
 
     Coordination::Stat stat;
     Strings log_items_batch = storage.zookeeper()->getChildren(storage.traits.log_base_node, &stat);
-    if (pass(log_items_batch.size(), stat.mtime))
+    if (skip(log_items_batch.size(), stat.mtime))
     {
         ProfileEvents::increment(ProfileEvents::VFSGcRunsSkipped);
+        skip_run = true;
         return;
     }
 
@@ -100,12 +104,14 @@ void ObjectStorageVFSGCThread::run() const
     ProfileEvents::increment(ProfileEvents::VFSGcRunsCompleted);
 }
 
-bool ObjectStorageVFSGCThread::pass(size_t batch_size, int64_t mtime) const
+bool ObjectStorageVFSGCThread::skip(size_t batch_size, int64_t mtime) const
 {
-    assert(mtime - std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() >= 0);
+    auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - mtime;
+    assert(delta > 0);
 
-    if (batch_size < storage.settings.batch_min_size
-        && storage.settings.batch_can_wait_milliseconds && mtime - std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() < static_cast<int64_t>(storage.settings.batch_can_wait_milliseconds))
+    if (!batch_size ||
+        (batch_size < storage.settings.batch_min_size
+            && storage.settings.batch_can_wait_milliseconds && delta < static_cast<int64_t>(storage.settings.batch_can_wait_milliseconds)))
     {
         return true;
     }
