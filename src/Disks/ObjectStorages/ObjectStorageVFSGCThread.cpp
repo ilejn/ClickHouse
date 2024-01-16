@@ -68,7 +68,11 @@ void ObjectStorageVFSGCThread::run() const
     bool successful_run = false, skip_run = false;
     SCOPE_EXIT(if (!successful_run)
         {
-            if (!skip_run)
+            if (skip_run)
+            {
+                ProfileEvents::increment(ProfileEvents::VFSGcRunsSkipped);
+            }
+            else
             {
                 ProfileEvents::increment(ProfileEvents::VFSGcRunsException);
             }
@@ -76,11 +80,10 @@ void ObjectStorageVFSGCThread::run() const
         }
         ProfileEvents::increment(ProfileEvents::VFSGcTotalMicroseconds, stop_watch.elapsedMicroseconds()));
 
-    Coordination::Stat stat;
-    Strings log_items_batch = storage.zookeeper()->getChildren(storage.traits.log_base_node, &stat);
-    if (skip(log_items_batch.size(), stat.mtime))
+    Strings log_items_batch = storage.zookeeper()->getChildren(storage.traits.log_base_node);
+
+    if (!log_items_batch.size())
     {
-        ProfileEvents::increment(ProfileEvents::VFSGcRunsSkipped);
         skip_run = true;
         return;
     }
@@ -94,6 +97,12 @@ void ObjectStorageVFSGCThread::run() const
     const size_t start_logpointer = parseFromString<size_t>(start_str.substr(4)); // log- is a prefix
     const size_t end_logpointer = std::min(parseFromString<size_t>(end_str.substr(4)), start_logpointer + storage.settings.batch_max_size);
 
+    if (skip(log_items_batch.size(), start_logpointer))
+    {
+        skip_run = true;
+        return;
+    }
+
     LOG_DEBUG(log, "Acquired lock for [{};{}]", start_logpointer, end_logpointer);
     // TODO myrrc store for 1 iteration more in case batch removal failed. Next node should try to
     // load previous snapshot
@@ -104,20 +113,30 @@ void ObjectStorageVFSGCThread::run() const
     ProfileEvents::increment(ProfileEvents::VFSGcRunsCompleted);
 }
 
-bool ObjectStorageVFSGCThread::skip(size_t batch_size, int64_t mtime) const
+bool ObjectStorageVFSGCThread::skip(size_t batch_size, size_t log_pointer) const
 {
-    auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - mtime;
-    assert(delta > 0);
-
-    if (!batch_size ||
-        (batch_size < storage.settings.batch_min_size
-            && storage.settings.batch_can_wait_milliseconds && delta < static_cast<int64_t>(storage.settings.batch_can_wait_milliseconds)))
-    {
+    assert(!batch_size);
+    if (batch_size > storage.settings.batch_min_size)
+        return false;
+    if (!storage.settings.batch_can_wait_milliseconds)
         return true;
+
+    /// batch creation time is determined by the first item
+    auto node_name = getNode(log_pointer);
+    Coordination::Stat stat;
+    storage.zookeeper()->exists(node_name, &stat);
+
+    auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - stat.mtime;
+    assert(delta > 0);
+    LOG_TRACE(log, "delta {} (now {}, mtime {})", delta,  std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(), stat.mtime);
+
+    if (delta > static_cast<int64_t>(storage.settings.batch_can_wait_milliseconds))
+    {
+        return false;
     }
     else
     {
-        return false;
+        return true;
     }
 }
 
