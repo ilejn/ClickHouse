@@ -1,7 +1,7 @@
 #include "ObjectStorageVFSGCThread.h"
-#include "DiskObjectStorageVFS.h"
 #include "Common/ProfileEvents.h"
 #include "Common/Stopwatch.h"
+#include "DiskObjectStorageVFS.h"
 #include "IO/Lz4DeflatingWriteBuffer.h"
 #include "IO/Lz4InflatingReadBuffer.h"
 #include "IO/ReadBufferFromEmptyFile.h"
@@ -9,12 +9,12 @@
 
 namespace ProfileEvents
 {
-    extern const Event VFSGcRunsCompleted;
-    extern const Event VFSGcRunsException;
-    extern const Event VFSGcRunsSkipped;
-    extern const Event VFSGcTotalMicroseconds;
-    extern const Event VFSGcCummulativeSnapshotBytesRead;
-    extern const Event VFSGcCummulativeLogItemsRead;
+extern const Event VFSGcRunsCompleted;
+extern const Event VFSGcRunsException;
+extern const Event VFSGcRunsSkipped;
+extern const Event VFSGcTotalMicroseconds;
+extern const Event VFSGcCummulativeSnapshotBytesRead;
+extern const Event VFSGcCummulativeLogItemsRead;
 }
 
 namespace DB
@@ -66,19 +66,13 @@ void ObjectStorageVFSGCThread::run() const
         throw Coordination::Exception(code);
 
     bool successful_run = false, skip_run = false;
-    SCOPE_EXIT(if (!successful_run)
-        {
-            if (skip_run)
-            {
-                ProfileEvents::increment(ProfileEvents::VFSGcRunsSkipped);
-            }
-            else
-            {
-                ProfileEvents::increment(ProfileEvents::VFSGcRunsException);
-            }
-            storage.zookeeper()->remove(lock_path);
-        }
-        ProfileEvents::increment(ProfileEvents::VFSGcTotalMicroseconds, stop_watch.elapsedMicroseconds()));
+    SCOPE_EXIT(if (!successful_run) {
+        if (skip_run)
+            ProfileEvents::increment(ProfileEvents::VFSGcRunsSkipped);
+        else
+            ProfileEvents::increment(ProfileEvents::VFSGcRunsException);
+        storage.zookeeper()->remove(lock_path);
+    } ProfileEvents::increment(ProfileEvents::VFSGcTotalMicroseconds, stop_watch.elapsedMicroseconds()));
 
     Strings log_items_batch = storage.zookeeper()->getChildren(storage.traits.log_base_node);
 
@@ -126,18 +120,20 @@ bool ObjectStorageVFSGCThread::skip(size_t batch_size, size_t log_pointer) const
     Coordination::Stat stat;
     storage.zookeeper()->exists(node_name, &stat);
 
-    auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - stat.mtime;
+    auto delta
+        = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - stat.mtime;
     assert(delta > 0);
-    LOG_TRACE(log, "delta {} (now {}, mtime {})", delta,  std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(), stat.mtime);
+    LOG_TRACE(
+        log,
+        "delta {} (now {}, mtime {})",
+        delta,
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(),
+        stat.mtime);
 
     if (delta > static_cast<int64_t>(storage.settings.batch_can_wait_milliseconds))
-    {
         return false;
-    }
     else
-    {
         return true;
-    }
 }
 
 
