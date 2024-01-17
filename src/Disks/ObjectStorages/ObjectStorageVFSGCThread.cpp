@@ -24,9 +24,6 @@ namespace ErrorCodes
 extern const int LOGICAL_ERROR;
 }
 
-// TODO myrrc should (possibly?) be settings. The batch size must not be too large as we put it in memory
-// constexpr size_t batch_min_size = 1, batch_max_size = 5000, snapshot_lz4_compression_level = 8;
-
 ObjectStorageVFSGCThread::ObjectStorageVFSGCThread(DiskObjectStorageVFS & storage_, BackgroundSchedulePool & pool)
     : storage(storage_)
     , log(&Poco::Logger::get(fmt::format("VFSGC({})", storage_.getName())))
@@ -78,6 +75,7 @@ void ObjectStorageVFSGCThread::run() const
 
     if (!log_items_batch.size())
     {
+        LOG_TRACE(log, "Skipped run due to empty batch");
         skip_run = true;
         return;
     }
@@ -91,7 +89,7 @@ void ObjectStorageVFSGCThread::run() const
     const size_t start_logpointer = parseFromString<size_t>(start_str.substr(4)); // log- is a prefix
     const size_t end_logpointer = std::min(parseFromString<size_t>(end_str.substr(4)), start_logpointer + storage.settings.batch_max_size);
 
-    if (skip(log_items_batch.size(), start_logpointer))
+    if (skipRun(log_items_batch.size(), start_logpointer))
     {
         skip_run = true;
         return;
@@ -107,13 +105,16 @@ void ObjectStorageVFSGCThread::run() const
     ProfileEvents::increment(ProfileEvents::VFSGcRunsCompleted);
 }
 
-bool ObjectStorageVFSGCThread::skip(size_t batch_size, size_t log_pointer) const
+bool ObjectStorageVFSGCThread::skipRun(size_t batch_size, size_t log_pointer) const
 {
-    assert(!batch_size);
     if (batch_size > storage.settings.batch_min_size)
         return false;
     if (!storage.settings.batch_can_wait_milliseconds)
+    {
+        LOG_TRACE(log, "Skipped run due to insufficient batch size: {} vs {}",
+            batch_size, storage.settings.batch_min_size);
         return true;
+    }
 
     /// batch creation time is determined by the first item
     auto node_name = getNode(log_pointer);
@@ -122,18 +123,15 @@ bool ObjectStorageVFSGCThread::skip(size_t batch_size, size_t log_pointer) const
 
     auto delta
         = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - stat.mtime;
-    assert(delta > 0);
-    LOG_TRACE(
-        log,
-        "delta {} (now {}, mtime {})",
-        delta,
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(),
-        stat.mtime);
 
     if (delta > static_cast<int64_t>(storage.settings.batch_can_wait_milliseconds))
         return false;
     else
+    {
+        LOG_TRACE(log, "Skipped run due to insufficient batch size and time constraints: {} vs {} and {} vs {}",
+            batch_size, storage.settings.batch_min_size, delta, static_cast<int64_t>(storage.settings.batch_can_wait_milliseconds));
         return true;
+    }
 }
 
 

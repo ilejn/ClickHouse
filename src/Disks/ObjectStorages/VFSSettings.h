@@ -1,4 +1,6 @@
 #pragma once
+#include <Poco/Util/AbstractConfiguration.h>
+#include <base/defines.h>
 
 namespace DB
 {
@@ -18,4 +20,4 @@ struct VFSSettings
     const UInt64 batch_can_wait_milliseconds;
     const Int16 snapshot_lz4_compression_level;
 };
-}
+} // namespace DB
