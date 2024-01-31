@@ -17,6 +17,12 @@ def started_cluster(request):
             main_configs=["configs/config.xml"],
             with_zookeeper=True,
             with_minio=True,
+            )
+        cluster.add_instance(
+            "node_params",
+            main_configs=["configs/config_params.xml"],
+            with_zookeeper=True,
+            with_minio=True,
         )
         cluster.start()
 
@@ -91,3 +97,38 @@ def test_reconcile(started_cluster):
     assert int(node.count_in_log("Selected snapshot 4 as best candidate")) == 1
 
     zk.stop()
+
+def test_gc_params(started_cluster):
+    node: ClickHouseInstance = started_cluster.instances["node_params"]
+    config_file = "/etc/clickhouse-server/config.d/config_params.xml"
+
+    VFSGcRunsCompleted_start = node.query("SELECT value FROM system.events WHERE event='VFSGcRunsCompleted'")
+    assert int(VFSGcRunsCompleted_start) <= 1
+    node.query("SYSTEM STOP MERGES")
+
+    node.query("CREATE TABLE partest (i UInt32) ENGINE=MergeTree ORDER BY i SETTINGS storage_policy = 's3'")
+    node.query("INSERT INTO partest VALUES (0)")
+    assert int(node.query("SELECT count() FROM partest")) == 1
+
+    time.sleep(3)
+    VFSGcRunsCompleted_after_sleep = node.query("SELECT value FROM system.events WHERE event='VFSGcRunsCompleted'")
+    assert 1 <= int(VFSGcRunsCompleted_after_sleep) - int(VFSGcRunsCompleted_start) <= 2
+    VFSGcRunsCompleted_start = VFSGcRunsCompleted_after_sleep
+
+    node.replace_in_config(config_file, "<vfs_batch_min_size>1", "<vfs_batch_min_size>100")
+    node.query("SYSTEM RELOAD CONFIG")
+
+    node.query("INSERT INTO partest VALUES (1)")
+    time.sleep(3)
+    VFSGcRunsCompleted_after_sleep = node.query("SELECT value FROM system.events WHERE event='VFSGcRunsCompleted'")
+    # We expect that GC is not run because number of records in VFS log less than vfs_batch_min_size
+    assert int(VFSGcRunsCompleted_after_sleep) == int(VFSGcRunsCompleted_start)
+
+    node.replace_in_config(config_file, "<vfs_batch_can_wait_ms>0", "<vfs_batch_can_wait_ms>100")
+    node.query("SYSTEM RELOAD CONFIG")
+
+    node.query("INSERT INTO partest VALUES (2)")
+    time.sleep(3)
+    VFSGcRunsCompleted_after_sleep = node.query("SELECT value FROM system.events WHERE event='VFSGcRunsCompleted'")
+    # We expect that GC run because vfs_batch_can_wait_ms is fairly small
+    assert 1 <= int(VFSGcRunsCompleted_after_sleep) - int(VFSGcRunsCompleted_start) <= 2

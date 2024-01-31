@@ -1,0 +1,31 @@
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <params>
+                <type>s3</type>
+                <allow_vfs>true</allow_vfs>
+                <vfs_gc_sleep_ms>500</vfs_gc_sleep_ms>
+								<vfs_batch_min_size>1</vfs_batch_min_size>
+								<vfs_batch_can_wait_ms>0</vfs_batch_can_wait_ms>
+                <endpoint>http://minio1:9001/root/params/</endpoint>
+                <access_key_id>minio</access_key_id>
+                <secret_access_key>minio123</secret_access_key>
+            </params>
+        </disks>
+        <policies>
+            <default>
+                <default>
+                    <disk>default</disk>
+                </default>
+            </default>
+            <s3>
+                <volumes>
+                    <main>
+                        <disk>params</disk>
+                        <prefer_not_to_merge>true</prefer_not_to_merge>
+                    </main>
+                </volumes>
+            </s3>
+        </policies>
+    </storage_configuration>
+</clickhouse>
