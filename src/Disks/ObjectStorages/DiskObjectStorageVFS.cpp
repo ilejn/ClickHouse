@@ -64,7 +64,10 @@ void DiskObjectStorageVFS::startupImpl(ContextPtr context)
     settings.set(std::move(new_settings));
 
     if (!enable_gc)
+    {
+        LOG_INFO(log, "VFS GC is not enabled"); /// The log message is used in an integration test
         return;
+    }
 
     // Assuming you can't migrate while having GC turned off
     // TODO myrrc we can't rely on user setting this correctly all the time.
