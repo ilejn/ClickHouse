@@ -177,7 +177,12 @@ int DisksApp::main(const std::vector<String> & /*args*/)
         Poco::Logger::root().setLevel(Poco::Logger::parseLevel(log_level));
     }
 
-    registerDisks(/* global_skip_access_check= */ true);
+
+
+    LOG_DEBUG(
+      &Poco::Logger::get("ch-disks "), "DisksApp::main");
+
+    registerDisks(DiskFlags().set(DiskFlag::GLOBAL_SKIP_ACCESS_CHECK).set(DiskFlag::ALLOW_VFS));
     registerFormats();
 
     shared_context = Context::createShared();

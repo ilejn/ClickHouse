@@ -666,7 +666,7 @@ try
     registerDatabases();
     registerStorages();
     registerDictionaries();
-    registerDisks(/* global_skip_access_check= */ false);
+    registerDisks(DiskFlags().set(DiskFlag::ALLOW_VFS).set(DiskFlag::ALLOW_VFS_GC));
     registerFormats();
     registerRemoteFileMetadatas();
     registerSchedulerNodes();

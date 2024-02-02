@@ -7,42 +7,42 @@
 namespace DB
 {
 
-void registerDiskLocal(DiskFactory & factory, bool global_skip_access_check);
+void registerDiskLocal(DiskFactory & factory, DiskFlags disk_flags);
 
 #if USE_SSL
-void registerDiskEncrypted(DiskFactory & factory, bool global_skip_access_check);
+void registerDiskEncrypted(DiskFactory & factory, DiskFlags disk_flags);
 #endif
 
-void registerDiskCache(DiskFactory & factory, bool global_skip_access_check);
-void registerDiskObjectStorage(DiskFactory & factory, bool global_skip_access_check);
+void registerDiskCache(DiskFactory & factory, DiskFlags disk_flags);
+void registerDiskObjectStorage(DiskFactory & factory, DiskFlags disk_flags);
 
 
 #ifndef CLICKHOUSE_KEEPER_STANDALONE_BUILD
 
-void registerDisks(bool global_skip_access_check)
+void registerDisks(DiskFlags disk_flags)
 {
     auto & factory = DiskFactory::instance();
 
-    registerDiskLocal(factory, global_skip_access_check);
+    registerDiskLocal(factory, disk_flags);
 
 #if USE_SSL
-    registerDiskEncrypted(factory, global_skip_access_check);
+    registerDiskEncrypted(factory, disk_flags);
 #endif
 
-    registerDiskCache(factory, global_skip_access_check);
+    registerDiskCache(factory, disk_flags);
 
-    registerDiskObjectStorage(factory, global_skip_access_check);
+    registerDiskObjectStorage(factory, disk_flags);
 }
 
 #else
 
-void registerDisks(bool global_skip_access_check)
+void registerDisks(DiskFlags disk_flags)
 {
     auto & factory = DiskFactory::instance();
 
-    registerDiskLocal(factory, global_skip_access_check);
+    registerDiskLocal(factory, disk_flags);
 
-    registerDiskObjectStorage(factory, global_skip_access_check);
+    registerDiskObjectStorage(factory, disk_flags);
 }
 
 #endif

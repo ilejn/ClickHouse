@@ -91,3 +91,51 @@ def test_reconcile(started_cluster):
     assert int(node.count_in_log("Selected snapshot 4 as best candidate")) == 1
 
     zk.stop()
+
+def test_ch_disks(started_cluster):
+    node: ClickHouseInstance = started_cluster.instances["node"]
+
+    listing = node.exec_in_container(
+    [
+        "/usr/bin/clickhouse",
+        "disks",
+        "--loglevel=trace",
+        "--save-logs",
+        "--config-file=/etc/clickhouse-server/config.d/config.xml",
+        "list-disks",
+    ],
+        privileged=True,
+        user="root",
+    )
+    print(listing)
+
+    listing = node.exec_in_container(
+    [
+        "/usr/bin/clickhouse",
+        "disks",
+        "--config-file=/etc/clickhouse-server/config.d/config.xml",
+        "--loglevel=trace",
+        "--save-logs",
+        "--disk=default",
+        "list",
+        "--recursive",
+        "/"
+    ],
+        privileged=True,
+        user="root",
+    )
+    print(listing)
+
+
+    log = node.exec_in_container(
+    [
+        "/usr/bin/cat",
+        "/var/log/clickhouse-server/clickhouse-disks.log",
+    ],
+        privileged=True,
+        user="root",
+    )
+    print("===<<<>>>===")
+    print(log)
+
+    assert listing == "zxcdefault\nreacquire\nreconcile\n"

@@ -1,3 +1,4 @@
+#include <Disks/registerDisks.h>
 #include <Disks/DiskFactory.h>
 #include <Interpreters/Context.h>
 #include <Disks/ObjectStorages/DiskObjectStorage.h>
@@ -29,12 +30,16 @@ static std::string getCompatibilityMetadataTypeHint(const ObjectStorageType & ty
     UNREACHABLE();
 }
 
-void registerDiskObjectStorage(DiskFactory & factory, bool global_skip_access_check)
+void registerDiskObjectStorage(DiskFactory & factory, DiskFlags disk_flags)
 {
+    LOG_DEBUG(
+        &Poco::Logger::get("ch-disks "), "top of registerDiskObjectStorage");
+
+
     registerObjectStorages();
     registerMetadataStorages();
 
-    auto creator = [global_skip_access_check](
+    auto creator = [disk_flags](
         const String & name,
         const Poco::Util::AbstractConfiguration & config,
         const String & config_prefix,
@@ -42,7 +47,11 @@ void registerDiskObjectStorage(DiskFactory & factory, bool global_skip_access_ch
         const DisksMap & /* map */,
         bool, bool) -> DiskPtr
     {
-        bool skip_access_check = global_skip_access_check || config.getBool(config_prefix + ".skip_access_check", false);
+
+        LOG_DEBUG(
+            &Poco::Logger::get("ch-disks "), "top of creator");
+
+        bool skip_access_check = disk_flags[DiskFlag::GLOBAL_SKIP_ACCESS_CHECK] || config.getBool(config_prefix + ".skip_access_check", false);
         auto object_storage = ObjectStorageFactory::instance().create(name, config, config_prefix, context, skip_access_check);
         std::string compatibility_metadata_type_hint;
         if (!config.has(config_prefix + ".metadata_type"))
@@ -56,9 +65,10 @@ void registerDiskObjectStorage(DiskFactory & factory, bool global_skip_access_ch
 // Keeper requires a disk to start up. A VFS disk requires a running Keeper in order to do an access check.
 // This creates a circular dependency, therefore, VFS disks are prohibited.
 #ifndef CLICKHOUSE_KEEPER_STANDALONE_BUILD
-        if (config.getBool(config_prefix + ".allow_vfs", false))
+        if (disk_flags[DiskFlag::ALLOW_VFS] && config.getBool(config_prefix + ".allow_vfs", false))
         {
-            const bool allow_vfs_gc = true; // TODO myrrc re-add GC ban for Keeper and ch-disks
+            LOG_DEBUG(
+                &Poco::Logger::get("ch-disks "), "creating DiskObjectStorageVFS");
             auto disk = std::make_shared<DiskObjectStorageVFS>(
                 name,
                 object_storage->getCommonKeyPrefix(),
@@ -66,7 +76,7 @@ void registerDiskObjectStorage(DiskFactory & factory, bool global_skip_access_ch
                 std::move(object_storage),
                 config,
                 config_prefix,
-                allow_vfs_gc);
+                disk_flags[DiskFlag::ALLOW_VFS_GC]);
             disk->startup(context, skip_access_check);
             return disk;
         }
