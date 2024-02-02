@@ -36,7 +36,6 @@ DiskObjectStorageVFS::DiskObjectStorageVFS(
     zookeeper()->createAncestors(nodes.log_item);
 
     log = getLogger(fmt::format("DiskVFS({})", name));
-    LOG_DEBUG(log, "New VFS settings: top of DiskObjectStorage ctor");
 }
 
 DiskObjectStoragePtr DiskObjectStorageVFS::createDiskObjectStorage()

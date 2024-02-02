@@ -92,50 +92,50 @@ def test_reconcile(started_cluster):
 
     zk.stop()
 
+
 def test_ch_disks(started_cluster):
     node: ClickHouseInstance = started_cluster.instances["node"]
 
     listing = node.exec_in_container(
-    [
-        "/usr/bin/clickhouse",
-        "disks",
-        "--loglevel=trace",
-        "--save-logs",
-        "--config-file=/etc/clickhouse-server/config.d/config.xml",
-        "list-disks",
-    ],
+        [
+            "/usr/bin/clickhouse",
+            "disks",
+            "--loglevel=trace",
+            "--save-logs",
+            "--config-file=/etc/clickhouse-server/config.d/config.xml",
+            "list-disks",
+        ],
         privileged=True,
         user="root",
     )
     print(listing)
+    assert listing == "default\nreacquire\nreconcile\n"
 
     listing = node.exec_in_container(
-    [
-        "/usr/bin/clickhouse",
-        "disks",
-        "--config-file=/etc/clickhouse-server/config.d/config.xml",
-        "--loglevel=trace",
-        "--save-logs",
-        "--disk=default",
-        "list",
-        "--recursive",
-        "/"
-    ],
+        [
+            "/usr/bin/clickhouse",
+            "disks",
+            "--config-file=/etc/clickhouse-server/config.xml",
+            "--loglevel=trace",
+            "--save-logs",
+            "--disk=reconcile",
+            "list",
+            "/",
+        ],
         privileged=True,
         user="root",
     )
+
     print(listing)
 
-
     log = node.exec_in_container(
-    [
-        "/usr/bin/cat",
-        "/var/log/clickhouse-server/clickhouse-disks.log",
-    ],
+        [
+            "/usr/bin/cat",
+            "/var/log/clickhouse-server/clickhouse-disks.log",
+        ],
         privileged=True,
         user="root",
     )
-    print("===<<<>>>===")
     print(log)
 
-    assert listing == "zxcdefault\nreacquire\nreconcile\n"
+    assert "VFS GC is not enabled" in log and "GC started" not in log

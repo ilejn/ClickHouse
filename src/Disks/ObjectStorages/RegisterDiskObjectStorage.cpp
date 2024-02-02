@@ -32,10 +32,6 @@ static std::string getCompatibilityMetadataTypeHint(const ObjectStorageType & ty
 
 void registerDiskObjectStorage(DiskFactory & factory, DiskFlags disk_flags)
 {
-    LOG_DEBUG(
-        &Poco::Logger::get("ch-disks "), "top of registerDiskObjectStorage");
-
-
     registerObjectStorages();
     registerMetadataStorages();
 
@@ -47,10 +43,6 @@ void registerDiskObjectStorage(DiskFactory & factory, DiskFlags disk_flags)
         const DisksMap & /* map */,
         bool, bool) -> DiskPtr
     {
-
-        LOG_DEBUG(
-            &Poco::Logger::get("ch-disks "), "top of creator");
-
         bool skip_access_check = disk_flags[DiskFlag::GLOBAL_SKIP_ACCESS_CHECK] || config.getBool(config_prefix + ".skip_access_check", false);
         auto object_storage = ObjectStorageFactory::instance().create(name, config, config_prefix, context, skip_access_check);
         std::string compatibility_metadata_type_hint;
@@ -67,8 +59,6 @@ void registerDiskObjectStorage(DiskFactory & factory, DiskFlags disk_flags)
 #ifndef CLICKHOUSE_KEEPER_STANDALONE_BUILD
         if (disk_flags[DiskFlag::ALLOW_VFS] && config.getBool(config_prefix + ".allow_vfs", false))
         {
-            LOG_DEBUG(
-                &Poco::Logger::get("ch-disks "), "creating DiskObjectStorageVFS");
             auto disk = std::make_shared<DiskObjectStorageVFS>(
                 name,
                 object_storage->getCommonKeyPrefix(),
