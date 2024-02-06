@@ -239,9 +239,19 @@ Logpointer VFSGarbageCollector::reconcile(Logpointer start, Logpointer end, std:
     if (const bool empty = snapshots.empty(); empty && starting)
     {
         LOG_DEBUG(log, "Didn't find snapshot before start, writing empty file");
-        const StoredObject object = getSnapshotObject(0);
-        auto buf = storage.object_storage->writeObject(object, WriteMode::Rewrite);
-        Lz4DeflatingWriteBuffer{std::move(buf), settings->snapshot_lz4_compression_level}.finalize();
+
+
+        {
+            const StoredObject object = storage.getMetadataObject("");
+            auto buf = storage.object_storage->writeObject(object, WriteMode::Rewrite);
+            Lz4DeflatingWriteBuffer{std::move(buf), settings->snapshot_lz4_compression_level}.finalize();
+        }
+        {
+            const StoredObject object = getSnapshotObject(0);
+            auto buf = storage.object_storage->writeObject(object, WriteMode::Rewrite);
+            Lz4DeflatingWriteBuffer{std::move(buf), settings->snapshot_lz4_compression_level}.finalize();
+        }
+
         return 0;
     }
     else if (empty)

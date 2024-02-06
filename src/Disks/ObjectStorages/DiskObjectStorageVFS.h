@@ -52,5 +52,8 @@ private:
     ZooKeeperWithFaultInjection::Ptr zookeeper() const;
     DiskTransactionPtr createObjectStorageTransaction() final;
     StoredObject getMetadataObject(std::string_view remote) const;
+
+    void sanityCheck() const override;
+
 };
 }

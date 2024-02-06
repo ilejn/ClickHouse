@@ -200,4 +200,9 @@ StoredObject DiskObjectStorageVFS::getMetadataObject(std::string_view remote) co
     String remote_key = fmt::format("vfs/{}{}", name, remote);
     return StoredObject{ObjectStorageKey::createAsRelative(object_key_prefix, std::move(remote_key)).serialize()};
 }
+
+void DiskObjectStorageVFS::sanityCheck() const
+{
+}
+
 }

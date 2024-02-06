@@ -26,6 +26,7 @@ namespace ErrorCodes
     extern const int ATTEMPT_TO_READ_AFTER_EOF;
     extern const int CANNOT_READ_ALL_DATA;
     extern const int DIRECTORY_DOESNT_EXIST;
+    extern const int INCORRECT_OBJECT_STORAGE_FLAVOR;
 }
 
 
@@ -57,6 +58,37 @@ DiskTransactionPtr DiskObjectStorage::createObjectStorageTransactionToAnotherDis
         send_metadata ? metadata_helper.get() : nullptr);
 }
 
+void DiskObjectStorage::sanityCheck() const
+{
+    // const fs::path snapshots_path = object_storage->getMetadataObject("/snapshots").remote_path;
+
+
+
+    auto prefix = object_storage->getCommonKeyPrefix();
+
+    // std::vector<String> file_names;
+    // listFiles("/"  /* const String & path */, file_names);
+
+    RelativePathsWithMetadata paths_with_metadata;
+    LOG_DEBUG(log, "sanityCheck: prefix {}", prefix);
+
+    object_storage->listObjects("/", paths_with_metadata, 1000);
+
+    // for (auto & file_name : file_names)
+    //     LOG_DEBUG(log, "sanityCheck file_name {}", file_name);
+
+    for (auto & a_path_with_metadata : paths_with_metadata)
+        LOG_DEBUG(log, "sanityCheck file_name {}", a_path_with_metadata.relative_path);
+
+    for (auto & fs_root : {"vfs", "/vfs", "/vfs_"})
+    {
+        auto path = fmt::format("{}{}/{}", prefix, fs_root, getName());
+        LOG_DEBUG(log, "sanityCheck is looking for {}", path);
+        if (object_storage->exists(StoredObject(path)))
+            throw Exception(ErrorCodes::INCORRECT_OBJECT_STORAGE_FLAVOR, "Attempt to use VFS disk as non-VFS");
+    }
+    LOG_DEBUG(log, "sanityCheck haven't raised as exception");
+}
 
 DiskObjectStorage::DiskObjectStorage(
     const String & name_,
@@ -397,6 +429,7 @@ void DiskObjectStorage::startupImpl(ContextPtr context)
     LOG_INFO(log, "Starting up disk {}", name);
     object_storage->startup();
 
+    sanityCheck();
     restoreMetadataIfNeeded(context->getConfigRef(), "storage_configuration.disks." + name, context);
 
     LOG_INFO(log, "Disk {} started up", name);

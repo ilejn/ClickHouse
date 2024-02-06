@@ -213,6 +213,8 @@ protected:
     virtual DiskTransactionPtr createObjectStorageTransaction();
     DiskTransactionPtr createObjectStorageTransactionToAnotherDisk(DiskObjectStorage& to_disk);
 
+    void virtual sanityCheck() const;
+
     String getReadResourceName() const;
     String getWriteResourceName() const;
 
