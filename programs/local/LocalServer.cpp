@@ -500,7 +500,7 @@ try
     registerDatabases();
     registerStorages();
     registerDictionaries();
-    registerDisks(DiskFlags().set(DiskFlag::GLOBAL_SKIP_ACCESS_CHECK));
+    registerDisks(DiskStartupFlags::GLOBAL_SKIP_ACCESS_CHECK);
     registerFormats();
 
     processConfig();

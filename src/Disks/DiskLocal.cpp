@@ -722,7 +722,7 @@ void DiskLocal::chmod(const String & path, mode_t mode)
     DB::ErrnoException::throwFromPath(DB::ErrorCodes::PATH_ACCESS_DENIED, path, "Cannot chmod file: {}", path);
 }
 
-void registerDiskLocal(DiskFactory & factory, DiskFlags disk_flags)
+void registerDiskLocal(DiskFactory & factory, DiskStartupFlags disk_flags)
 {
     auto creator = [disk_flags](
         const String & name,
@@ -740,7 +740,7 @@ void registerDiskLocal(DiskFactory & factory, DiskFlags disk_flags)
             if (path == disk_ptr->getPath())
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "Disk {} and disk {} cannot have the same path ({})", name, disk_name, path);
 
-        bool skip_access_check = disk_flags[DiskFlag::GLOBAL_SKIP_ACCESS_CHECK] || config.getBool(config_prefix + ".skip_access_check", false);
+        bool skip_access_check = is_set(disk_flags, DiskStartupFlags::GLOBAL_SKIP_ACCESS_CHECK) || config.getBool(config_prefix + ".skip_access_check", false);
         std::shared_ptr<IDisk> disk
             = std::make_shared<DiskLocal>(name, path, keep_free_space_bytes, context, config, config_prefix);
         disk->startup(context, skip_access_check);

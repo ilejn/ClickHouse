@@ -391,7 +391,7 @@ try
     if (config().has("macros"))
         global_context->setMacros(std::make_unique<Macros>(config(), "macros", log));
 
-    registerDisks(DiskFlags());
+    registerDisks(DiskStartupFlags());
     /// This object will periodically calculate some metrics.
     KeeperAsynchronousMetrics async_metrics(
         global_context,

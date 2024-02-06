@@ -18,7 +18,7 @@ namespace ErrorCodes
     extern const int BAD_ARGUMENTS;
 }
 
-void registerDiskCache(DiskFactory & factory, DiskFlags)
+void registerDiskCache(DiskFactory & factory, DiskStartupFlags)
 {
     auto creator = [](const String & name,
                     const Poco::Util::AbstractConfiguration & config,

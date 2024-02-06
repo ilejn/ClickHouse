@@ -64,7 +64,7 @@ void DiskObjectStorageVFS::startupImpl(ContextPtr context)
 
     if (!enable_gc)
     {
-        LOG_INFO(log, "VFS GC is not enabled"); /// The log message is used in an integration test
+        LOG_INFO(log, "VFS GC is not enabled");
         return;
     }
 

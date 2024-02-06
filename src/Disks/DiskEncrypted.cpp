@@ -449,7 +449,7 @@ void DiskEncrypted::applyNewSettings(
     IDisk::applyNewSettings(config, context, config_prefix, disk_map);
 }
 
-void registerDiskEncrypted(DiskFactory & factory, DiskFlags disk_flags)
+void registerDiskEncrypted(DiskFactory & factory, DiskStartupFlags disk_flags)
 {
     auto creator = [disk_flags](
         const String & name,
@@ -459,7 +459,7 @@ void registerDiskEncrypted(DiskFactory & factory, DiskFlags disk_flags)
         const DisksMap & map,
         bool, bool) -> DiskPtr
     {
-        bool skip_access_check = disk_flags[DiskFlag::GLOBAL_SKIP_ACCESS_CHECK] || config.getBool(config_prefix + ".skip_access_check", false);
+        bool skip_access_check = is_set(disk_flags, DiskStartupFlags::GLOBAL_SKIP_ACCESS_CHECK) || config.getBool(config_prefix + ".skip_access_check", false);
         DiskPtr disk = std::make_shared<DiskEncrypted>(name, config, config_prefix, map);
         disk->startup(context, skip_access_check);
         return disk;

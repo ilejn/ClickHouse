@@ -102,6 +102,9 @@
 #include <filesystem>
 #include <unordered_set>
 
+#include "magic_enum.hpp"
+using namespace magic_enum::bitwise_operators;
+
 #include "config.h"
 #include <Common/config_version.h>
 
@@ -666,7 +669,7 @@ try
     registerDatabases();
     registerStorages();
     registerDictionaries();
-    registerDisks(DiskFlags().set(DiskFlag::ALLOW_VFS).set(DiskFlag::ALLOW_VFS_GC));
+    registerDisks(DiskStartupFlags::ALLOW_VFS | DiskStartupFlags::ALLOW_VFS_GC);
     registerFormats();
     registerRemoteFileMetadatas();
     registerSchedulerNodes();

@@ -5,33 +5,19 @@
 namespace DB
 {
 
-enum class DiskFlag : size_t
+enum class DiskStartupFlags
 {
     /// skip access check regardless .skip_access_check config directive (used for clickhouse-disks)
-    GLOBAL_SKIP_ACCESS_CHECK = 0,
+    GLOBAL_SKIP_ACCESS_CHECK = 1,
 
     /// ObjectStorageVFS is allowed (used e.g. for Keeper)
-    ALLOW_VFS,
+    ALLOW_VFS = 1 << 1,
 
     /// ObjectStorageVFS Garbage Collector is allowed (used for clickhouse-disks)
-    ALLOW_VFS_GC,
+    ALLOW_VFS_GC = 1 << 2,
 };
 
-/// just a syntax sugar to use scoped enum with bitset without explicit cast
-template <typename FLAG, typename BODY>
-class FlagsSet : public BODY
-{
-    using SelfType = DB::FlagsSet<FLAG, BODY>;
+bool is_set(DiskStartupFlags flag1, DiskStartupFlags flag2);
 
-public:
-    constexpr bool test(FLAG flag) { return BODY::test(static_cast<size_t>(flag)); }
-    constexpr SelfType & set(FLAG pos, bool value = true) { BODY::set(static_cast<size_t>(pos), value); return *this;}
-    constexpr SelfType & flip(FLAG pos) { BODY::flip(static_cast<size_t>(pos)); return *this;}
-    constexpr bool operator[](FLAG pos) const { return BODY::operator[](static_cast<size_t>(pos));}
-};
-
-using DiskFlagsBody = std::bitset<3>;
-using DiskFlags = FlagsSet<DiskFlag, DiskFlagsBody>;
-
-void registerDisks(DiskFlags disk_flags);
+void registerDisks(DiskStartupFlags disk_flags);
 }

@@ -30,7 +30,7 @@ static std::string getCompatibilityMetadataTypeHint(const ObjectStorageType & ty
     UNREACHABLE();
 }
 
-void registerDiskObjectStorage(DiskFactory & factory, DiskFlags disk_flags)
+void registerDiskObjectStorage(DiskFactory & factory, DiskStartupFlags disk_flags)
 {
     registerObjectStorages();
     registerMetadataStorages();
@@ -43,7 +43,7 @@ void registerDiskObjectStorage(DiskFactory & factory, DiskFlags disk_flags)
         const DisksMap & /* map */,
         bool, bool) -> DiskPtr
     {
-        bool skip_access_check = disk_flags[DiskFlag::GLOBAL_SKIP_ACCESS_CHECK] || config.getBool(config_prefix + ".skip_access_check", false);
+        bool skip_access_check = is_set(disk_flags, DiskStartupFlags::GLOBAL_SKIP_ACCESS_CHECK) || config.getBool(config_prefix + ".skip_access_check", false);
         auto object_storage = ObjectStorageFactory::instance().create(name, config, config_prefix, context, skip_access_check);
         std::string compatibility_metadata_type_hint;
         if (!config.has(config_prefix + ".metadata_type"))
@@ -57,7 +57,7 @@ void registerDiskObjectStorage(DiskFactory & factory, DiskFlags disk_flags)
 // Keeper requires a disk to start up. A VFS disk requires a running Keeper in order to do an access check.
 // This creates a circular dependency, therefore, VFS disks are prohibited.
 #ifndef CLICKHOUSE_KEEPER_STANDALONE_BUILD
-        if (disk_flags[DiskFlag::ALLOW_VFS] && config.getBool(config_prefix + ".allow_vfs", false))
+        if (is_set(disk_flags, DiskStartupFlags::ALLOW_VFS) && config.getBool(config_prefix + ".allow_vfs", false))
         {
             auto disk = std::make_shared<DiskObjectStorageVFS>(
                 name,
@@ -66,7 +66,7 @@ void registerDiskObjectStorage(DiskFactory & factory, DiskFlags disk_flags)
                 std::move(object_storage),
                 config,
                 config_prefix,
-                disk_flags[DiskFlag::ALLOW_VFS_GC]);
+                is_set(disk_flags, DiskStartupFlags::ALLOW_VFS_GC));
             disk->startup(context, skip_access_check);
             return disk;
         }
