@@ -18,6 +18,13 @@ def started_cluster(request):
             with_zookeeper=True,
             with_minio=True,
         )
+        cluster.add_instance(
+            "node_metamorph",
+            main_configs=["configs/non_vfs.xml"],
+            with_zookeeper=True,
+            with_minio=True,
+            stay_alive=True,
+        )
         cluster.start()
 
         yield cluster
@@ -95,7 +102,6 @@ def test_reconcile(started_cluster):
 
     zk.stop()
 
-
 def test_ch_disks(started_cluster):
     node: ClickHouseInstance = started_cluster.instances["node"]
 
@@ -143,3 +149,72 @@ def test_ch_disks(started_cluster):
 
     assert "GC enabled: false" in log
     assert "GC started" not in log
+
+def test_change_disk_flavor_from_vfs(started_cluster):
+    vfs_config =  """<clickhouse>
+    <storage_configuration>
+        <disks>
+            <s3>
+                <type>s3</type>
+                <allow_vfs>true</allow_vfs>
+                <vfs_gc_sleep_ms>5000</vfs_gc_sleep_ms>
+                <endpoint>http://minio1:9001/root/morph/</endpoint>
+                <access_key_id>minio</access_key_id>
+                <secret_access_key>minio123</secret_access_key>
+            </s3>
+        </disks>
+        <policies>
+            <default>
+                <volumes>
+                    <main>
+                        <disk>s3</disk>
+                    </main>
+                </volumes>
+            </default>
+        </policies>
+    </storage_configuration>
+</clickhouse>
+"""
+
+    no_vfs_config =  """<clickhouse>
+    <storage_configuration>
+        <disks>
+            <s3>
+                <type>s3</type>
+                <allow_vfs>false</allow_vfs>
+                <endpoint>http://minio1:9001/root/morph/</endpoint>
+                <access_key_id>minio</access_key_id>
+                <secret_access_key>minio123</secret_access_key>
+            </s3>
+        </disks>
+        <policies>
+            <default>
+                <volumes>
+                    <main>
+                        <disk>s3</disk>
+                    </main>
+                </volumes>
+            </default>
+        </policies>
+    </storage_configuration>
+</clickhouse>
+"""
+    config_file = "/etc/clickhouse-server/config.d/vfs.xml"
+
+    node: ClickHouseInstance = started_cluster.instances["node_metamorph"]
+
+    node.replace_config(config_file, vfs_config, )
+    node.restart_clickhouse()
+
+    node.query("CREATE TABLE mtest (i UInt32) ENGINE=MergeTree ORDER BY i")
+    node.query("INSERT INTO mtest VALUES (0)")
+
+    assert int(node.query("SELECT count() FROM mtest")) == 1
+
+
+    node.stop_clickhouse()
+    node.replace_config(config_file, no_vfs_config, )
+
+    node.start_clickhouse(retry_start=False, expected_to_fail=True)
+    time.sleep(3)
+    assert node.contains_in_log("DB::Exception: Attempt to use VFS disk as non-VFS")
