@@ -19,8 +19,15 @@ def started_cluster(request):
             with_minio=True,
         )
         cluster.add_instance(
-            "node_metamorph",
+            "node_to_vfs",
             main_configs=["configs/non_vfs.xml"],
+            with_zookeeper=True,
+            with_minio=True,
+            stay_alive=True,
+        )
+        cluster.add_instance(
+            "node_from_vfs",
+            main_configs=["configs/vfs.xml"],
             with_zookeeper=True,
             with_minio=True,
             stay_alive=True,
@@ -99,15 +106,15 @@ def test_reconcile(started_cluster):
 
     zk.stop()
 
-def test_change_disk_flavor_from_vfs(started_cluster):
-    vfs_config =  """<clickhouse>
+
+vfs_config =  """<clickhouse>
     <storage_configuration>
         <disks>
             <s3>
                 <type>s3</type>
                 <allow_vfs>true</allow_vfs>
                 <vfs_gc_sleep_ms>5000</vfs_gc_sleep_ms>
-                <endpoint>http://minio1:9001/root/morph/</endpoint>
+                <endpoint>http://minio1:9001/root/from_vfs/</endpoint>
                 <access_key_id>minio</access_key_id>
                 <secret_access_key>minio123</secret_access_key>
             </s3>
@@ -125,13 +132,13 @@ def test_change_disk_flavor_from_vfs(started_cluster):
 </clickhouse>
 """
 
-    no_vfs_config =  """<clickhouse>
+no_vfs_config =  """<clickhouse>
     <storage_configuration>
         <disks>
             <s3>
                 <type>s3</type>
                 <allow_vfs>false</allow_vfs>
-                <endpoint>http://minio1:9001/root/morph/</endpoint>
+                <endpoint>http://minio1:9001/root/from_vfs/</endpoint>
                 <access_key_id>minio</access_key_id>
                 <secret_access_key>minio123</secret_access_key>
             </s3>
@@ -148,9 +155,12 @@ def test_change_disk_flavor_from_vfs(started_cluster):
     </storage_configuration>
 </clickhouse>
 """
+
+
+def test_change_disk_flavor_from_vfs(started_cluster):
     config_file = "/etc/clickhouse-server/config.d/vfs.xml"
 
-    node: ClickHouseInstance = started_cluster.instances["node_metamorph"]
+    node: ClickHouseInstance = started_cluster.instances["node_from_vfs"]
 
     node.replace_config(config_file, vfs_config, )
     node.restart_clickhouse()
