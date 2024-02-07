@@ -251,14 +251,19 @@ Logpointer VFSGarbageCollector::reconcile(Logpointer start, Logpointer end, std:
 
 
         {
-            const StoredObject object = storage.getMetadataObject("");
+            const StoredObject object = storage.getMetadataObject("/marker");
             auto buf = storage.object_storage->writeObject(object, WriteMode::Rewrite);
             Lz4DeflatingWriteBuffer{std::move(buf), settings->snapshot_lz4_compression_level}.finalize();
+
+            LOG_DEBUG(log, "Written vfs object {}", object);
+
         }
         {
             const StoredObject object = getSnapshotObject(0);
             auto buf = storage.object_storage->writeObject(object, WriteMode::Rewrite);
             Lz4DeflatingWriteBuffer{std::move(buf), settings->snapshot_lz4_compression_level}.finalize();
+
+            LOG_DEBUG(log, "Written snapshot {}", object);
         }
 
         return 0;

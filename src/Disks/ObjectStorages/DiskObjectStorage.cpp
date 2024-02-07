@@ -82,7 +82,7 @@ void DiskObjectStorage::sanityCheck() const
 
     for (auto & fs_root : {"vfs", "/vfs", "/vfs_"})
     {
-        auto path = fmt::format("{}{}/{}", prefix, fs_root, getName());
+        auto path = fmt::format("{}{}/{}/marker", prefix, fs_root, getName());
         LOG_DEBUG(log, "sanityCheck is looking for {}", path);
         if (object_storage->exists(StoredObject(path)))
             throw Exception(ErrorCodes::INCORRECT_OBJECT_STORAGE_FLAVOR, "Attempt to use VFS disk as non-VFS");

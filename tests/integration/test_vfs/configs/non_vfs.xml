@@ -1,0 +1,22 @@
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <s3>
+                <type>s3</type>
+                <allow_vfs>false</allow_vfs>
+                <endpoint>http://minio1:9001/root/from_vfs/</endpoint>
+                <access_key_id>minio</access_key_id>
+                <secret_access_key>minio123</secret_access_key>
+            </s3>
+        </disks>
+        <policies>
+            <default>
+                <volumes>
+                    <main>
+                        <disk>s3</disk>
+                    </main>
+                </volumes>
+            </default>
+        </policies>
+    </storage_configuration>
+</clickhouse>
