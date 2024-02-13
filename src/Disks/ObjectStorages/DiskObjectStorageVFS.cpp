@@ -13,6 +13,7 @@ namespace DB
 namespace ErrorCodes
 {
 extern const int BAD_ARGUMENTS;
+extern const int INCORRECT_OBJECT_STORAGE_FLAVOR;
 }
 
 DiskObjectStorageVFS::DiskObjectStorageVFS(
@@ -208,6 +209,33 @@ StoredObject DiskObjectStorageVFS::getMetadataObject(std::string_view remote) co
 
 void DiskObjectStorageVFS::sanityCheck() const
 {
+    // storage is either clean or non-vfs
+
+    auto prefix = object_storage->getCommonKeyPrefix();
+
+    LOG_DEBUG(log, "sanityCheck: prefix {}", prefix);
+
+
+    for (auto & fs_root : {"vfs", "/vfs", "/vfs_"})
+    {
+        auto path = fmt::format("{}{}/{}/marker", prefix, fs_root, getName());
+        LOG_DEBUG(log, "sanityCheck is looking for {}", path);
+        if (object_storage->exists(StoredObject(path)))
+            return;
+
+        // throw Exception(ErrorCodes::INCORRECT_OBJECT_STORAGE_FLAVOR, "Attempt to use VFS disk as non-VFS");
+    }
+    RelativePathsWithMetadata paths_with_metadata;
+    object_storage->listObjects("/", paths_with_metadata, 1000);
+
+    for (auto & a_path_with_metadata : paths_with_metadata)
+        LOG_DEBUG(log, "sanityCheck file_name {}", a_path_with_metadata.relative_path);
+
+    if (!paths_with_metadata.empty())
+    {
+        throw Exception(ErrorCodes::INCORRECT_OBJECT_STORAGE_FLAVOR, "Attempt to use non-VFS disk as VFS");
+    }
+
 }
 
 }

@@ -6,6 +6,9 @@
 #include <Disks/ObjectStorages/ObjectStorageFactory.h>
 #include "DiskObjectStorageVFS.h"
 
+#include <Common/logger_useful.h>
+
+
 namespace DB
 {
 void registerObjectStorages();
@@ -55,12 +58,22 @@ void registerDiskObjectStorage(DiskFactory & factory, DiskStartupFlags disk_flag
         auto metadata_storage = MetadataStorageFactory::instance().create(
             name, config, config_prefix, object_storage, compatibility_metadata_type_hint);
 
+        LOG_INFO(
+            &Poco::Logger::get("registerDiskObjectStorage"),
+            "disk name {}, config_prefix {}, vfs - {}",
+            name, config_prefix, config.getBool(config_prefix + ".allow_vfs", false));
+
+
 // Keeper requires a disk to start up. A VFS disk requires a running Keeper in order to do an access check.
 // This creates a circular dependency, therefore, VFS disks are prohibited.
 #ifndef CLICKHOUSE_KEEPER_STANDALONE_BUILD
         if (is_set(disk_flags, DiskStartupFlags::ALLOW_VFS)
             && config.getBool(config_prefix + ".allow_vfs", false))
         {
+            LOG_INFO(
+                &Poco::Logger::get("registerDiskObjectStorage"),
+                "disk name {}, config_prefix {}", name, config_prefix);
+
             auto disk = std::make_shared<DiskObjectStorageVFS>(
                 name,
                 object_storage->getCommonKeyPrefix(),

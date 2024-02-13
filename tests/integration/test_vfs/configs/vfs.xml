@@ -11,13 +11,13 @@
             </s3>
         </disks>
         <policies>
-            <default>
+            <s3_policy>
                 <volumes>
                     <main>
                         <disk>s3</disk>
                     </main>
                 </volumes>
-            </default>
+            </s3_policy>
         </policies>
     </storage_configuration>
 </clickhouse>
