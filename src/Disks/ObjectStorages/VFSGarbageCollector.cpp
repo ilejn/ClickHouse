@@ -238,6 +238,8 @@ Logpointer VFSGarbageCollector::reconcile(Logpointer start, Logpointer end, std:
 
     if (const bool empty = snapshots.empty(); empty && starting)
     {
+        storage.sanityCheck();
+
         LOG_DEBUG(log, "Didn't find snapshot before start, writing empty file");
 
 

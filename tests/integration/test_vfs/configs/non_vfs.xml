@@ -4,19 +4,19 @@
             <s3>
                 <type>s3</type>
                 <allow_vfs>false</allow_vfs>
-                <endpoint>http://minio1:9001/root/from_vfs/</endpoint>
+                <endpoint>http://minio1:9001/root/to_vfs/</endpoint>
                 <access_key_id>minio</access_key_id>
                 <secret_access_key>minio123</secret_access_key>
             </s3>
         </disks>
         <policies>
-            <default>
+            <s3_policy>
                 <volumes>
                     <main>
                         <disk>s3</disk>
                     </main>
                 </volumes>
-            </default>
+            </s3_policy>
         </policies>
     </storage_configuration>
 </clickhouse>

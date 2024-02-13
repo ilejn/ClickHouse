@@ -2,22 +2,78 @@
 
 import time
 import io
+import os
 import pytest
 from kazoo.client import KazooClient
 from helpers.cluster import ClickHouseCluster, ClickHouseInstance
 from helpers.network import PartitionManager
 
+vfs_config =  """<clickhouse>
+    <storage_configuration>
+        <disks>
+            <s3>
+                <type>s3</type>
+                <allow_vfs>true</allow_vfs>
+                <vfs_gc_sleep_ms>5000</vfs_gc_sleep_ms>
+                <endpoint>http://minio1:9001/root/{}/</endpoint>
+                <access_key_id>minio</access_key_id>
+                <secret_access_key>minio123</secret_access_key>
+            </s3>
+        </disks>
+        <policies>
+            <s3_policy>
+                <volumes>
+                    <main>
+                        <disk>s3</disk>
+                    </main>
+                </volumes>
+            </s3_policy>
+        </policies>
+    </storage_configuration>
+</clickhouse>
+"""
+
+non_vfs_config =  """<clickhouse>
+    <storage_configuration>
+        <disks>
+            <s3>
+                <type>s3</type>
+                <allow_vfs>false</allow_vfs>
+                <endpoint>http://minio1:9001/root/{}/</endpoint>
+                <access_key_id>minio</access_key_id>
+                <secret_access_key>minio123</secret_access_key>
+            </s3>
+        </disks>
+        <policies>
+            <s3_policy>
+                <volumes>
+                    <main>
+                        <disk>s3</disk>
+                    </main>
+                </volumes>
+            </s3_policy>
+        </policies>
+    </storage_configuration>
+</clickhouse>
+"""
 
 @pytest.fixture(scope="module")
 def started_cluster(request):
+    confdir = "{}/configs/".format(os.path.dirname(os.path.abspath(__file__)))
+    with open(confdir + "non_vfs.xml", "w+") as f:
+        f.write(non_vfs_config.format("to_vfs"))
+    with open(confdir + "vfs.xml", "w+") as f:
+        f.write(vfs_config.format("from_vfs"))
+
     cluster = ClickHouseCluster(__file__)
     try:
-        cluster.add_instance(
-            "node",
-            main_configs=["configs/config.xml"],
-            with_zookeeper=True,
-            with_minio=True,
-        )
+        # cluster.add_instance(
+        #     "node",
+        #     main_configs=["configs/config.xml"],
+        #     with_zookeeper=True,
+        #     with_minio=True,
+        #     stay_alive=True,
+        # )
         cluster.add_instance(
             "node_to_vfs",
             main_configs=["configs/non_vfs.xml"],
@@ -25,13 +81,17 @@ def started_cluster(request):
             with_minio=True,
             stay_alive=True,
         )
-        cluster.add_instance(
-            "node_from_vfs",
-            main_configs=["configs/vfs.xml"],
-            with_zookeeper=True,
-            with_minio=True,
-            stay_alive=True,
-        )
+        # cluster.add_instance(
+        #     "node_from_vfs",
+        #     main_configs=["configs/vfs.xml"],
+        #     with_zookeeper=True,
+        #     with_minio=True,
+        #     stay_alive=True,
+        # )
+
+        # vfs_node.replace_config('/etc/clickhouse-server/config.d/vfs.xml', vfs_config.format('from_vfs'), )
+        # non_vfs_node.replace_config('etc/clickhouse-server/config.d/non_vfs.xml', non_vfs_config.format('to_vfs'), )
+
         cluster.start()
 
         yield cluster
@@ -63,6 +123,60 @@ def test_session_breaks(started_cluster):
     node.query("INSERT INTO test VALUES (2)")
     assert int(node.query("SELECT count() FROM test")) == 2
     node.query("DROP TABLE test")
+
+
+
+
+def test_change_disk_flavor_from_vfs(started_cluster):
+    config_file = "/etc/clickhouse-server/config.d/vfs.xml"
+
+    node: ClickHouseInstance = started_cluster.instances["node_from_vfs"]
+
+    time.sleep(3)
+    # node.replace_config(config_file, vfs_config.format('from_vfs'), )
+    # node.restart_clickhouse()
+
+    node.query("CREATE TABLE mtest (i UInt32) ENGINE=MergeTree ORDER BY i SETTINGS storage_policy='s3_policy'")
+    node.query("INSERT INTO mtest VALUES (0)")
+
+    assert int(node.query("SELECT count() FROM mtest")) == 1
+
+    time.sleep(3)
+
+    node.stop_clickhouse()
+    node.replace_config(config_file, non_vfs_config.format('from_vfs'), )
+
+    node.start_clickhouse(retry_start=False, expected_to_fail=True)
+    time.sleep(3)
+    assert node.contains_in_log("DB::Exception: Attempt to use VFS disk as non-VFS")
+
+def test_change_disk_flavor_to_vfs(started_cluster):
+    config_file = "/etc/clickhouse-server/config.d/non_vfs.xml"
+
+    node: ClickHouseInstance = started_cluster.instances["node_to_vfs"]
+
+
+
+    # node.replace_config(config_file, vfs_config.format('to_vfs'), )
+    # node.restart_clickhouse()
+
+    node.query("CREATE TABLE mtest (i UInt32) ENGINE=MergeTree ORDER BY i SETTINGS storage_policy='s3_policy'")
+    node.query("INSERT INTO mtest VALUES (0)")
+
+    assert int(node.query("SELECT count() FROM mtest")) == 1
+
+    time.sleep(3)
+
+    node.stop_clickhouse()
+    node.replace_config(config_file, vfs_config.format('to_vfs'), )
+    # node.start_clickhouse()
+
+    # assert 2 == 1
+
+
+    node.start_clickhouse(retry_start=False, expected_to_fail=True)
+    time.sleep(3)
+    assert node.contains_in_log("DB::Exception: Attempt to use non-VFS disk as VFS")
 
 
 def test_reconcile(started_cluster):
@@ -105,75 +219,3 @@ def test_reconcile(started_cluster):
     assert int(node.count_in_log("Selected snapshot 4 as best candidate")) == 1
 
     zk.stop()
-
-
-vfs_config =  """<clickhouse>
-    <storage_configuration>
-        <disks>
-            <s3>
-                <type>s3</type>
-                <allow_vfs>true</allow_vfs>
-                <vfs_gc_sleep_ms>5000</vfs_gc_sleep_ms>
-                <endpoint>http://minio1:9001/root/from_vfs/</endpoint>
-                <access_key_id>minio</access_key_id>
-                <secret_access_key>minio123</secret_access_key>
-            </s3>
-        </disks>
-        <policies>
-            <default>
-                <volumes>
-                    <main>
-                        <disk>s3</disk>
-                    </main>
-                </volumes>
-            </default>
-        </policies>
-    </storage_configuration>
-</clickhouse>
-"""
-
-no_vfs_config =  """<clickhouse>
-    <storage_configuration>
-        <disks>
-            <s3>
-                <type>s3</type>
-                <allow_vfs>false</allow_vfs>
-                <endpoint>http://minio1:9001/root/from_vfs/</endpoint>
-                <access_key_id>minio</access_key_id>
-                <secret_access_key>minio123</secret_access_key>
-            </s3>
-        </disks>
-        <policies>
-            <default>
-                <volumes>
-                    <main>
-                        <disk>s3</disk>
-                    </main>
-                </volumes>
-            </default>
-        </policies>
-    </storage_configuration>
-</clickhouse>
-"""
-
-
-def test_change_disk_flavor_from_vfs(started_cluster):
-    config_file = "/etc/clickhouse-server/config.d/vfs.xml"
-
-    node: ClickHouseInstance = started_cluster.instances["node_from_vfs"]
-
-    node.replace_config(config_file, vfs_config, )
-    node.restart_clickhouse()
-
-    node.query("CREATE TABLE mtest (i UInt32) ENGINE=MergeTree ORDER BY i")
-    node.query("INSERT INTO mtest VALUES (0)")
-
-    assert int(node.query("SELECT count() FROM mtest")) == 1
-
-
-    node.stop_clickhouse()
-    node.replace_config(config_file, no_vfs_config, )
-
-    node.start_clickhouse(retry_start=False, expected_to_fail=True)
-    time.sleep(3)
-    assert node.contains_in_log("DB::Exception: Attempt to use VFS disk as non-VFS")
