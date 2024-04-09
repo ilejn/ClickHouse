@@ -1,3 +1,19 @@
+"""
+The script removes orphaned objects from s3 object storage
+  Ones that are not mentioned in system.remote_data_paths table
+
+There are two stages:
+1. Collecting.
+     Paths of all objects found in object storage are put in auxiliary ClickHouse table.
+       It's name is a concatenation of 's3objects_for_' and disk name by default.
+       Created in the same ClickHouse instance where data from system.remote_data_paths selected
+2. Removing.
+     All objects that exist in s3 and not used according to system.remote_data_paths
+       are removed from object storage.
+
+It is possible to split these stages or do everything at one go.
+"""
+
 import os
 from minio import Minio
 import clickhouse_connect
@@ -5,6 +21,7 @@ from optparse import OptionParser
 import urllib3
 import logging
 import datetime
+
 
 usage = """
 %prog [options]
@@ -97,7 +114,7 @@ parser.add_option(
     action="store_true",
     dest="collectonly",
     default=False,
-    help="keep auxiliary data in ClickHouse table",
+    help="put object names to auxiliary table",
 )
 parser.add_option(
     "--use-collected",
