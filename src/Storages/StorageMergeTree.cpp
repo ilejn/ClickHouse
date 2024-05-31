@@ -966,22 +966,28 @@ void StorageMergeTree::loadMutations()
 
 bool StorageMergeTree::mutationVersionsEquivalent(const DataPartPtr & left, const DataPartPtr & right, std::unique_lock<std::mutex> & lock)
 {
+    // serialized by currently_processing_in_background_mutex
+
     auto leftMutationVersion = getCurrentMutationVersion(left, lock);
     auto rightMutationVersion = getCurrentMutationVersion(right, lock);
 
     bool is_equivalent = true;
 
+    LOG_TRACE(log, "Top of mutationVersionsEquivalent {}", reinterpret_cast<void*>(this));
     if (leftMutationVersion != rightMutationVersion)
     {
-        auto [follower_id, from, to] = leftMutationVersion < rightMutationVersion
-            ? std::make_tuple(left->info.partition_id, leftMutationVersion, rightMutationVersion)
-            : std::make_tuple(right->info.partition_id, rightMutationVersion, leftMutationVersion);
+        assert(left->info.partition_id == right->info.partition_id);
+
+        auto partition_id = left->info.partition_id;
+        auto [from, to] = leftMutationVersion < rightMutationVersion
+            ? std::make_tuple(leftMutationVersion, rightMutationVersion)
+            : std::make_tuple(rightMutationVersion, leftMutationVersion);
 
         VersionsEquivalenceCache::MappedPtr cached_is_equivalent;
-        if (versions_equivalence_cache_ptr && (cached_is_equivalent = versions_equivalence_cache_ptr->get({follower_id, to})))
+        if (versions_equivalence_cache_ptr && (cached_is_equivalent = versions_equivalence_cache_ptr->get({partition_id, to})))
         {
             is_equivalent = *cached_is_equivalent;
-            LOG_TRACE(log, "Got {} from versions_equivalence_cache for {}-{}", is_equivalent, follower_id, to);
+            LOG_TRACE(log, "Got {} from versions_equivalence_cache for {}-{}", is_equivalent, partition_id, to);
         }
         else
         {
@@ -991,7 +997,7 @@ bool StorageMergeTree::mutationVersionsEquivalent(const DataPartPtr & left, cons
             size_t mutations_cnt = 0;
             for (; mutations_it != mutations_end_it; ++mutations_it, ++mutations_cnt)
             {
-                if (mutations_it->second.affectsPartition(follower_id))
+                if (mutations_it->second.affectsPartition(partition_id))
                 {
                     is_equivalent = false;
                     break;
@@ -1004,8 +1010,8 @@ bool StorageMergeTree::mutationVersionsEquivalent(const DataPartPtr & left, cons
                     LOG_TRACE(log, "Creating versions_equivalence_cache");
                     versions_equivalence_cache_ptr = std::make_unique<VersionsEquivalenceCache>(10000);
                 }
-                LOG_TRACE(log, "Adding to versions_equivalence_cache {} for {}-{}", is_equivalent, follower_id, to);
-                versions_equivalence_cache_ptr->set({follower_id, to}, std::make_shared<bool>(is_equivalent));
+                LOG_TRACE(log, "Adding to versions_equivalence_cache {} for {}-{}", is_equivalent, partition_id, to);
+                versions_equivalence_cache_ptr->set({partition_id, to}, std::make_shared<bool>(is_equivalent));
             }
         }
     }
