@@ -981,6 +981,7 @@ bool StorageMergeTree::mutationVersionsEquivalent(const DataPartPtr & left, cons
         if (versions_equivalence_cache_ptr && (cached_is_equivalent = versions_equivalence_cache_ptr->get({follower_id, to})))
         {
             is_equivalent = *cached_is_equivalent;
+            LOG_TRACE(log, "Got {} from versions_equivalence_cache for {}-{}", is_equivalent, follower_id, to);
         }
         else
         {
@@ -1000,8 +1001,10 @@ bool StorageMergeTree::mutationVersionsEquivalent(const DataPartPtr & left, cons
             {
                 if (!versions_equivalence_cache_ptr)
                 {
+                    LOG_TRACE(log, "Creating versions_equivalence_cache");
                     versions_equivalence_cache_ptr = std::make_unique<VersionsEquivalenceCache>(10000);
                 }
+                LOG_TRACE(log, "Adding to versions_equivalence_cache {} for {}-{}", is_equivalent, follower_id, to);
                 versions_equivalence_cache_ptr->set({follower_id, to}, std::make_shared<bool>(is_equivalent));
             }
         }
