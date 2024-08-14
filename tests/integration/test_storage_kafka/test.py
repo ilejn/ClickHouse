@@ -5019,6 +5019,146 @@ def test_multiple_read_in_materialized_views(kafka_cluster, max_retries=15):
         """
     )
 
+def test_system_kafka_permissions(kafka_cluster):
+    admin_client = KafkaAdminClient(
+        bootstrap_servers="localhost:{}".format(kafka_cluster.kafka_port)
+    )
+
+    topic1 = "system_kafka_con_perm1"
+    kafka_create_topic(admin_client, topic1)
+    topic2 = "system_kafka_con_perm2"
+    kafka_create_topic(admin_client, topic2)
+
+    # Check that format_csv_delimiter parameter works now - as part of all available format settings.
+    kafka_produce(
+        kafka_cluster,
+        topic1,
+        ["1|foo", "2|bar", "42|answer", "100|multi\n101|row\n103|message"],
+    )
+
+    instance.query(
+        f"""
+        DROP TABLE IF EXISTS test.kafka;
+
+        CREATE TABLE test.kafka1 (a UInt64, b String)
+            ENGINE = Kafka
+            SETTINGS kafka_broker_list = 'kafka1:19092',
+                     kafka_topic_list = '{topic1}',
+                     kafka_group_name = '{topic1}',
+                     kafka_commit_on_select = 1,
+                     kafka_format = 'CSV',
+                     kafka_row_delimiter = '\\n',
+                     format_csv_delimiter = '|';
+
+        CREATE TABLE test.kafka2 (a UInt64, b String)
+            ENGINE = Kafka
+            SETTINGS kafka_broker_list = 'kafka1:19092',
+                     kafka_topic_list = '{topic2}',
+                     kafka_group_name = '{topic2}',
+                     kafka_commit_on_select = 1,
+                     kafka_format = 'CSV',
+                     kafka_row_delimiter = '\\n',
+                     format_csv_delimiter = '|';
+
+        """
+    )
+
+    result = instance.query("SELECT * FROM test.kafka1 ORDER BY a;")
+
+    result_system_kafka_consumers = instance.query(
+        """
+
+        SELECT database, table from system.kafka_consumers order by table format Vertical
+        """
+    )
+    logging.debug(f"result_system_kafka_consumers: {result_system_kafka_consumers}")
+    assert (
+        result_system_kafka_consumers
+        == """Row 1:
+──────
+database: test
+table:    kafka1
+
+Row 2:
+──────
+database: test
+table:    kafka2
+"""
+    )
+
+    instance.query("CREATE USER NOT_ADMIN")
+    instance.query("GRANT SELECT ON system.kafka_consumers to NOT_ADMIN")
+
+
+    result_system_kafka_consumers = instance.query("SELECT database, table from system.kafka_consumers order by table format PrettyCompactNoEscapes", user = "NOT_ADMIN")
+    logging.debug(f"result_system_kafka_consumers for NOT_ADMIN: {result_system_kafka_consumers}")
+    assert (
+        result_system_kafka_consumers
+        == ""
+    )
+
+    result_system_kafka_consumers = instance.query("SELECT database, table from system.kafka_consumers order by table format Vertical", user = "NOT_ADMIN")
+    logging.debug(f"result_system_kafka_consumers for NOT_ADMIN: {result_system_kafka_consumers}")
+    assert (
+        result_system_kafka_consumers
+        == ""
+    )
+
+
+    instance.query("GRANT ALL ON test.kafka1 to NOT_ADMIN")
+
+    result_system_kafka_consumers = instance.query("SELECT database, table from system.kafka_consumers order by table format PrettyCompactNoEscapes", user = "NOT_ADMIN")
+    logging.debug(f"result_system_kafka_consumers for NOT_ADMIN: {result_system_kafka_consumers}")
+    assert (
+        result_system_kafka_consumers
+        == ""
+    )
+
+    result_system_kafka_consumers = instance.query("SELECT database, table from system.kafka_consumers order by table format Vertical", user = "NOT_ADMIN")
+    logging.debug(f"result_system_kafka_consumers for NOT_ADMIN: {result_system_kafka_consumers}")
+    assert (
+        result_system_kafka_consumers
+        == ""
+    )
+
+
+    instance.query("GRANT SHOW TABLES ON *.* to NOT_ADMIN")
+
+    result_system_kafka_consumers = instance.query("SELECT database, table from system.kafka_consumers order by table format PrettyCompactNoEscapes", user = "NOT_ADMIN")
+    logging.debug(f"result_system_kafka_consumers for NOT_ADMIN: {result_system_kafka_consumers}")
+    assert (
+        result_system_kafka_consumers
+        == """   ┌─database─┬─table──┐
+1. │ test     │ kafka1 │
+2. │ test     │ kafka2 │
+   └──────────┴────────┘
+"""
+    )
+
+    result_system_kafka_consumers = instance.query("SELECT database, table from system.kafka_consumers order by table format Vertical", user = "NOT_ADMIN")
+    logging.debug(f"result_system_kafka_consumers for NOT_ADMIN: {result_system_kafka_consumers}")
+    assert (
+        result_system_kafka_consumers
+        == """Row 1:
+──────
+database: test
+table:    kafka1
+
+Row 2:
+──────
+database: test
+table:    kafka2
+"""
+    )
+
+
+
+    instance.query("DROP USER NOT_ADMIN")
+    instance.query("DROP TABLE test.kafka1")
+    instance.query("DROP TABLE test.kafka2")
+    kafka_delete_topic(admin_client, topic1)
+    kafka_delete_topic(admin_client, topic2)
+
 
 if __name__ == "__main__":
     cluster.start()
