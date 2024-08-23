@@ -174,6 +174,12 @@ def test_kafka_json_as_string_request_new_ticket_after_expiration(kafka_cluster)
     )
 
 
+def test_kafka_pause_kdc(kafka_cluster):
+    kafka_cluster.pause_container("kafka_kerberos")
+    time.sleep(4)  # wait for ticket expiration
+    kafka_cluster.unpause_container("kafka_kerberos")
+
+
 def test_kafka_json_as_string_no_kdc(kafka_cluster):
     # When the test is run alone (not preceded by any other kerberized kafka test),
     # we need a ticket to

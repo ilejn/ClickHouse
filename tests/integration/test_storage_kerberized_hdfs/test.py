@@ -120,6 +120,11 @@ def test_read_table_expired(started_cluster):
 
     started_cluster.unpause_container("hdfskerberos")
 
+def test_hdfs_pause_kdc(started_cluster):
+    started_cluster.pause_container("hdfskerberos")
+    time.sleep(5)
+    started_cluster.unpause_container("hdfskerberos")
+
 
 def test_prohibited(started_cluster):
     node1.query(
