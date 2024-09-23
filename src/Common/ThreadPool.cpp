@@ -47,6 +47,8 @@ namespace ProfileEvents
 
 }
 
+namespace
+{
 struct ScopedDecrement
 {
     std::atomic<int64_t>& atomic_var;
@@ -62,6 +64,7 @@ struct ScopedDecrement
         atomic_var.fetch_add(1, std::memory_order_relaxed);
     }
 };
+}
 
 class JobWithPriority
 {
@@ -295,7 +298,7 @@ ReturnType ThreadPoolImpl<Thread>::scheduleImpl(Job job, Priority priority, std:
 
         /// We must not allocate memory or perform operations that could throw exceptions after adding a job to the queue,
         /// because if an exception occurs, it may leave the job in the queue without notifying any threads.
-        typename std::list<std::unique_ptr<ThreadFromThreadPool>>::iterator thread_slot;
+        typename ThreadFromThreadPool::ThreadList::iterator thread_slot;
 
         /// The decision to start a new thread is made outside the locked section.
         /// However, thread load and demand can change dynamically, and decisions based on
@@ -314,6 +317,11 @@ ReturnType ThreadPoolImpl<Thread>::scheduleImpl(Job job, Priority priority, std:
         ///     is needed (possibly because one of the existing threads was removed or became unavailable).
         ///     In this case, we create the thread inside the critical section, even though this may introduce
         ///     a small delay.
+
+        /// We can have remaining_pool_capacity and available_threads as two halves of int64_t
+        ///  to access them atomically. This approach probably reduces posibilities of race (1) and (2)
+        ///  because compare_exchange_weak covers both in this case,
+        ///  though does not rule them out, so does not worth fuss.
 
         /// Check if we can add the thread created outside the critical section to the pool.
         bool adding_new_thread = new_thread && threads.size() < std::min(max_threads, 1 /* current job */ + scheduled_jobs + max_free_threads);
@@ -429,7 +437,7 @@ void ThreadPoolImpl<Thread>::startNewThreadsNoLock()
         if (!new_thread)
             break; /// failed to start more threads
 
-        typename std::list<std::unique_ptr<ThreadFromThreadPool>>::iterator thread_slot;
+        typename ThreadFromThreadPool::ThreadList::iterator thread_slot;
 
         try
         {
@@ -595,7 +603,15 @@ void ThreadPoolImpl<Thread>::ThreadFromThreadPool::start(typename std::list<std:
     ThreadState expected = ThreadState::Preparing;
     if (thread_state.compare_exchange_strong(expected, ThreadState::Running))
     {
-        thread_it = it;
+        /// It should be better to move thread_it = it before atomic operation.
+        /// Original code does not guarantee that thread_id would be correct in any other thread
+        ///  (atomic operation is before assigning to non-atomic)
+        /// removeSelfFromPoolNoPoolLock() is called after a mutex operation,
+        ///  which implies memory barrier, so no extra care is required
+
+        /// atomic<ThreadList::iterator> seems to work, while it is not portable (I guess)
+
+        thread_it.store(it);
     }
     else
     {
@@ -618,7 +634,7 @@ void ThreadPoolImpl<Thread>::ThreadFromThreadPool::removeSelfFromPoolNoPoolLock(
     if (thread.joinable())
         thread.detach();
 
-    parent_pool.threads.erase(thread_it);
+    parent_pool.threads.erase(thread_it.load());
 }
 
 template <typename Thread>
@@ -647,7 +663,7 @@ void ThreadPoolImpl<Thread>::ThreadFromThreadPool::worker()
         std::this_thread::yield();  // let's try to yield to avoid consuming too much CPU in the busy-loop
     }
 
-    // If the thread transitions to Failed, exit
+    // If the thread transitions to Destructing, exit
     if (thread_state.load() == ThreadState::Destructing)
         return;
 
