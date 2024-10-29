@@ -298,7 +298,7 @@ bool Authentication::areCredentialsValid(
     const ClientInfo & client_info,
     SettingsChanges & settings)
 {
-    if (!credentials.isReady())
+    if (!typeid_cast<const TokenCredentials *>(&credentials) && !credentials.isReady())
         return false;
 
     if (const auto * gss_acceptor_context = typeid_cast<const GSSAcceptorContext *>(&credentials))
@@ -339,6 +339,14 @@ bool Authentication::areCredentialsValid(
         return checkSSHLoginAuthentication(ssh_login_credentials, authentication_method);
     }
 #endif
+
+    if (const auto * token_credentials = typeid_cast<const TokenCredentials *>(&credentials))
+    {
+        if (authentication_method.getType() != AuthenticationType::JWT)
+            return false;
+
+        return external_authenticators.checkTokenCredentials(*token_credentials);
+    }
 
     if ([[maybe_unused]] const auto * always_allow_credentials = typeid_cast<const AlwaysAllowCredentials *>(&credentials))
         return true;
