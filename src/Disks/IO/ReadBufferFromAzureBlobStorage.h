@@ -26,6 +26,7 @@ public:
         bool use_external_buffer_ = false,
         bool restricted_seek_ = false,
         size_t read_until_position_ = 0);
+    ~ReadBufferFromAzureBlobStorage() override;
 
     off_t seek(off_t off, int whence) override;
 

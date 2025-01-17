@@ -64,6 +64,30 @@ ReadBufferFromAzureBlobStorage::ReadBufferFromAzureBlobStorage(
     }
 }
 
+ReadBufferFromAzureBlobStorage::~ReadBufferFromAzureBlobStorage()
+{
+    if (initialized && data_stream)
+    {
+        size_t to_read_bytes = static_cast<size_t>(total_size - offset);
+        if (to_read_bytes)
+        {
+            /// drain connection to increase chances it would be reused
+            try
+            {
+                /// up to the end of already requested data chunk
+                data_stream->ReadToEnd();
+                if (read_settings.remote_throttler)
+                    read_settings.remote_throttler->add(to_read_bytes, ProfileEvents::RemoteReadThrottlerBytes, ProfileEvents::RemoteReadThrottlerSleepMicroseconds);
+                LOG_DEBUG(log, "Connection drained, {} bytes are consumed", to_read_bytes);
+            }
+            catch(...)
+            {
+            }
+        }
+    }
+
+}
+
 void ReadBufferFromAzureBlobStorage::setReadUntilEnd()
 {
     if (read_until_position)
