@@ -985,7 +985,14 @@ Chunk AsynchronousInsertQueue::processEntriesWithParsing(
         return 0;
     };
 
-    StreamingFormatExecutor executor(header, format, std::move(on_error), std::move(adding_defaults_transform));
+
+    StreamingFormatExecutor executor(
+        header,
+        format,
+        std::move(on_error),
+        data->size_in_bytes,
+        data->entries.size(),
+        std::move(adding_defaults_transform));
     auto chunk_info = std::make_shared<AsyncInsertInfo>();
     auto query_for_logging = serializeQuery(*key.query, insert_context->getSettingsRef().log_queries_cut_to_length);
 
@@ -1001,7 +1008,7 @@ Chunk AsynchronousInsertQueue::processEntriesWithParsing(
         auto buffer = std::make_unique<ReadBufferFromString>(*bytes);
 
         size_t num_bytes = bytes->size();
-        size_t num_rows = executor.execute(*buffer);
+        size_t num_rows = executor.execute(*buffer, num_bytes);
 
         total_rows += num_rows;
         /// for some reason, client can pass zero rows and bytes to server.
