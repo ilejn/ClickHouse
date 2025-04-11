@@ -60,9 +60,9 @@ InputFormatPtr getInputFormatFromASTInsertQuery(
     auto input_buffer_ast_part = std::make_unique<ReadBufferFromMemory>(
         ast_insert_query->data, ast_insert_query->data ? ast_insert_query->end - ast_insert_query->data : 0);
 
-    std::unique_ptr<ReadBuffer> input_buffer = with_buffers
+    auto [input_buffer, _] = with_buffers
         ? getReadBufferFromASTInsertQuery(ast)
-        : std::make_unique<EmptyReadBuffer>();
+        : std::pair<std::unique_ptr<ReadBuffer>, size_t>(std::make_unique<EmptyReadBuffer>(), 0);
 
     /// Create a source from input buffer using format from query
     auto source = context->getInputFormat(ast_insert_query->format, *input_buffer, header, context->getSettingsRef()[Setting::max_insert_block_size]);
@@ -107,11 +107,13 @@ Pipe getSourceFromASTInsertQuery(
     return getSourceFromInputFormat(ast, std::move(format), std::move(context), input_function);
 }
 
-std::unique_ptr<ReadBuffer> getReadBufferFromASTInsertQuery(const ASTPtr & ast)
+std::pair<std::unique_ptr<ReadBuffer>, size_t> getReadBufferFromASTInsertQuery(const ASTPtr & ast)
 {
     const auto * insert_query = ast->as<ASTInsertQuery>();
     if (!insert_query)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Query requires data to insert, but it is not INSERT query");
+
+    size_t size_hint = 0;
 
     if (insert_query->infile)
     {
@@ -129,15 +131,18 @@ std::unique_ptr<ReadBuffer> getReadBufferFromASTInsertQuery(const ASTPtr & ast)
 
         /// Otherwise, it will be detected from file name automatically (by chooseCompressionMethod)
         /// Buffer for reading from file is created and wrapped with appropriate compression method
-        return wrapReadBufferWithCompressionMethod(std::make_unique<ReadBufferFromFile>(in_file), chooseCompressionMethod(in_file, compression_method));
+        return {wrapReadBufferWithCompressionMethod(std::make_unique<ReadBufferFromFile>(in_file), chooseCompressionMethod(in_file, compression_method)), size_hint};
     }
 
     std::vector<std::unique_ptr<ReadBuffer>> buffers;
+
     if (insert_query->data)
     {
+        size_hint = insert_query->end - insert_query->data;
+
         /// Data could be in parsed (ast_insert_query.data) and in not parsed yet (input_buffer_tail_part) part of query.
         auto ast_buffer = std::make_unique<ReadBufferFromMemory>(
-            insert_query->data, insert_query->end - insert_query->data);
+            insert_query->data, size_hint);
 
         buffers.emplace_back(std::move(ast_buffer));
     }
@@ -145,7 +150,7 @@ std::unique_ptr<ReadBuffer> getReadBufferFromASTInsertQuery(const ASTPtr & ast)
     if (insert_query->tail)
         buffers.emplace_back(wrapReadBufferReference(*insert_query->tail));
 
-    return std::make_unique<ConcatReadBuffer>(std::move(buffers));
+    return {std::make_unique<ConcatReadBuffer>(std::move(buffers)), size_hint};
 }
 
 }

@@ -412,7 +412,10 @@ bool Client::processWithFuzzing(const String & full_query)
             {
                 String bytes;
                 {
-                    auto read_buf = getReadBufferFromASTInsertQuery(query);
+                    auto [read_buf, size_hint] = getReadBufferFromASTInsertQuery(query);
+                    if (size_hint)
+                        bytes.resize(size_hint);
+
                     WriteBufferFromString write_buf(bytes);
                     copyData(*read_buf, write_buf);
                 }

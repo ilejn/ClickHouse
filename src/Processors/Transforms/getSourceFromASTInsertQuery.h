@@ -22,14 +22,14 @@ InputFormatPtr getInputFormatFromASTInsertQuery(
 
 /// Prepares a pipe from input format got from ASTInsertQuery,
 /// which produce data containing in INSERT query.
-Pipe getSourceFromInputFormat(
+Pipe  getSourceFromInputFormat(
     const ASTPtr & ast,
     InputFormatPtr format,
     ContextPtr context,
     const ASTPtr & input_function);
 
 /// Prepares a pipe which produce data containing in INSERT query.
-Pipe getSourceFromASTInsertQuery(
+Pipe  getSourceFromASTInsertQuery(
     const ASTPtr & ast,
     bool with_buffers,
     const Block & header,
@@ -40,6 +40,6 @@ class ReadBuffer;
 
 /// Prepares a read buffer, that allows to read inlined data
 /// from ASTInsertQuert directly, and from tail buffer, if it exists.
-std::unique_ptr<ReadBuffer> getReadBufferFromASTInsertQuery(const ASTPtr & ast);
+std::pair<std::unique_ptr<ReadBuffer>, size_t> getReadBufferFromASTInsertQuery(const ASTPtr & ast);
 
 }
