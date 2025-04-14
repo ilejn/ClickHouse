@@ -379,9 +379,7 @@ AsynchronousInsertQueue::pushQueryWithInlinedData(ASTPtr query, ContextPtr query
         /// If limit is exceeded we will fallback to synchronous insert
         /// to avoid buffering of huge amount of data in memory.
 
-        auto [read_buf, size_hint] = getReadBufferFromASTInsertQuery(query);
-        if (size_hint)
-            bytes.resize(size_hint);
+        auto read_buf = getReadBufferFromASTInsertQuery(query);
 
         LimitReadBuffer limit_buf(
             *read_buf,
