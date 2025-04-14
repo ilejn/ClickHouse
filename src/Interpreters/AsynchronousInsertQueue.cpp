@@ -71,6 +71,7 @@ namespace Setting
     extern const SettingsUInt64 async_insert_max_data_size;
     extern const SettingsUInt64 async_insert_max_query_number;
     extern const SettingsMilliseconds async_insert_poll_timeout_ms;
+    extern const SettingsUInt64 async_insert_preallocate_buffer_size;
     extern const SettingsBool async_insert_use_adaptive_busy_timeout;
     extern const SettingsBool empty_result_for_aggregation_by_empty_set;
     extern const SettingsBool insert_allow_materialized_columns;
@@ -370,6 +371,8 @@ void AsynchronousInsertQueue::preprocessInsertQuery(const ASTPtr & query, const 
 AsynchronousInsertQueue::PushResult
 AsynchronousInsertQueue::pushQueryWithInlinedData(ASTPtr query, ContextPtr query_context)
 {
+    const auto & settings = query_context->getSettingsRef();
+
     query = query->clone();
     preprocessInsertQuery(query, query_context);
 
@@ -380,6 +383,10 @@ AsynchronousInsertQueue::pushQueryWithInlinedData(ASTPtr query, ContextPtr query
         /// to avoid buffering of huge amount of data in memory.
 
         auto read_buf = getReadBufferFromASTInsertQuery(query);
+
+        auto size_hint = settings[Setting::async_insert_preallocate_buffer_size];
+        if (size_hint)
+            bytes.resize(size_hint);
 
         LimitReadBuffer limit_buf(
             *read_buf,
@@ -606,6 +613,19 @@ void AsynchronousInsertQueue::validateSettings(const Settings & settings, Logger
             "'async_insert_busy_timeout_min_ms'",
             min_ms.count(),
             max_ms.count());
+
+    /// Preallocate
+    uint64_t max_data_size = settings[Setting::async_insert_max_data_size];
+    uint64_t preallocate_buffer_size = settings[Setting::async_insert_preallocate_buffer_size];
+
+    if (max_data_size < preallocate_buffer_size && log)
+        LOG_WARNING(
+            log,
+            "Setting 'async_insert_preallocate_buffer_size'={} is greater than 'async_insert_max_data_size'={}"
+            "While it does not make sense to preallocate more room for a single async insert"
+            "then entire buffer size",
+            preallocate_buffer_size,
+            max_data_size);
 
     if (settings[Setting::async_insert_busy_timeout_increase_rate] <= 0)
         throw Exception(ErrorCodes::INVALID_SETTING_VALUE, "Setting 'async_insert_busy_timeout_increase_rate' must be greater than zero");

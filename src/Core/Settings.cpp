@@ -5471,6 +5471,10 @@ The exponential growth rate at which the adaptive asynchronous insert timeout in
 The exponential growth rate at which the adaptive asynchronous insert timeout decreases
 )", 0) \
     \
+    DECLARE(UInt64, async_insert_preallocate_buffer_size, 0, R"(
+Estimated minimum size of single async insert payload
+)", 0) \
+    \
     DECLARE(UInt64, remote_fs_read_max_backoff_ms, 10000, R"(
 Max wait time when trying to read data for remote disk
 )", 0) \
