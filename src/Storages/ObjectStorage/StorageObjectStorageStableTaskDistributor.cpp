@@ -9,7 +9,8 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int LOGICAL_ERROR;
-}
+    extern const int CANNOT_READ_ALL_DATA;
+};
 
 StorageObjectStorageStableTaskDistributor::StorageObjectStorageStableTaskDistributor(
     std::shared_ptr<IObjectIterator> iterator_,
@@ -21,6 +22,9 @@ StorageObjectStorageStableTaskDistributor::StorageObjectStorageStableTaskDistrib
     , lock_object_storage_task_distribution_us(lock_object_storage_task_distribution_ms_ * 1000)
     , iterator_exhausted(false)
 {
+    size_t nodes = ids_of_nodes.size();
+    for (size_t i = 0; i < nodes; ++i)
+        replica_to_files_to_be_processed[i] = std::list<String>{};
 }
 
 std::optional<String> StorageObjectStorageStableTaskDistributor::getNextTask(size_t number_of_current_replica)
@@ -36,16 +40,27 @@ std::optional<String> StorageObjectStorageStableTaskDistributor::getNextTask(siz
 
     saveLastNodeActivity(number_of_current_replica);
 
+    auto processed_file_list_ptr = replica_to_files_to_be_processed.find(number_of_current_replica);
+    if (processed_file_list_ptr == replica_to_files_to_be_processed.end())
+        throw Exception(
+            ErrorCodes::LOGICAL_ERROR,
+            "Replica number {} was marked as lost, can't set task for it anymore",
+            number_of_current_replica
+        );
+
     // 1. Check pre-queued files first
-    if (auto file = getPreQueuedFile(number_of_current_replica))
-        return file;
-
+    std::optional<String> file = getPreQueuedFile(number_of_current_replica);
     // 2. Try to find a matching file from the iterator
-    if (auto file = getMatchingFileFromIterator(number_of_current_replica))
-        return file;
-
+    if (!file.has_value())
+        file = getMatchingFileFromIterator(number_of_current_replica);
     // 3. Process unprocessed files if iterator is exhausted
-    return getAnyUnprocessedFile(number_of_current_replica);
+    if (!file.has_value())
+        file = getAnyUnprocessedFile(number_of_current_replica);
+
+    if (file.has_value())
+        processed_file_list_ptr->second.push_back(*file);
+
+    return file;
 }
 
 size_t StorageObjectStorageStableTaskDistributor::getReplicaForFile(const String & file_path)
@@ -228,6 +243,30 @@ void StorageObjectStorageStableTaskDistributor::saveLastNodeActivity(size_t numb
     Poco::Timestamp now;
     std::lock_guard lock(mutex);
     last_node_activity[number_of_current_replica] = now;
+}
+
+void StorageObjectStorageStableTaskDistributor::rescheduleTasksFromReplica(size_t number_of_current_replica)
+{
+    LOG_INFO(log, "Replica {} is marked as lost, tasks are returned to queue", number_of_current_replica);
+    std::lock_guard lock(mutex);
+
+    auto processed_file_list_ptr = replica_to_files_to_be_processed.find(number_of_current_replica);
+    if (processed_file_list_ptr == replica_to_files_to_be_processed.end())
+        throw Exception(
+            ErrorCodes::LOGICAL_ERROR,
+            "Replica number {} was marked as lost already",
+            number_of_current_replica
+        );
+
+    if (replica_to_files_to_be_processed.size() < 2)
+        throw Exception(
+            ErrorCodes::CANNOT_READ_ALL_DATA,
+            "All replicas were marked as lost"
+        );
+
+    for (const auto & file_path : processed_file_list_ptr->second)
+        unprocessed_files[file_path] = number_of_current_replica;
+    replica_to_files_to_be_processed.erase(number_of_current_replica);
 }
 
 }
