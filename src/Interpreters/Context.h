@@ -1296,6 +1296,7 @@ public:
     size_t getClustersVersion() const;
 
     void startClusterDiscovery();
+    void unregisterInDynamicClusters();
 
     /// Sets custom cluster, but doesn't update configuration
     void setCluster(const String & cluster_name, const std::shared_ptr<Cluster> & cluster);
@@ -1407,6 +1408,10 @@ public:
     void stopServers(const ServerType & server_type) const;
 
     void shutdown();
+
+    /// Stop some works to allow graceful shutdown later
+    void preShutdown();
+    bool isPreShutdownCalled() const;
 
     bool isInternalQuery() const { return is_internal_query; }
     void setInternalQuery(bool internal) { is_internal_query = internal; }

@@ -1010,6 +1010,11 @@ void RemoteQueryExecutor::setProfileInfoCallback(ProfileInfoCallback callback)
     profile_info_callback = std::move(callback);
 }
 
+bool RemoteQueryExecutor::skipUnavailableShards() const
+{
+    return context->getSettingsRef()[Setting::skip_unavailable_shards];
+}
+
 bool RemoteQueryExecutor::needToSkipUnavailableShard() const
 {
     return context->getSettingsRef()[Setting::skip_unavailable_shards] && (0 == connections->size());

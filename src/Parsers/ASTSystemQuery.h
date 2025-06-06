@@ -17,6 +17,7 @@ public:
     {
         UNKNOWN,
         SHUTDOWN,
+        PRESHUTDOWN,
         KILL,
         SUSPEND,
         DROP_DNS_CACHE,

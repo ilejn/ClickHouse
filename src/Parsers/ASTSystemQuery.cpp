@@ -453,6 +453,7 @@ void ASTSystemQuery::formatImpl(WriteBuffer & ostr, const FormatSettings & setti
         }
         case Type::KILL:
         case Type::SHUTDOWN:
+        case Type::PRESHUTDOWN:
         case Type::DROP_DNS_CACHE:
         case Type::DROP_CONNECTIONS_CACHE:
         case Type::DROP_MMAP_CACHE:

@@ -38,6 +38,8 @@ public:
 
     ~ClusterDiscovery();
 
+    void unregisterAll();
+
 private:
     struct NodeInfo
     {
@@ -125,6 +127,7 @@ private:
     void initialUpdate();
 
     void registerInZk(zkutil::ZooKeeperPtr & zk, ClusterInfo & info);
+    void unregisterFromZk(zkutil::ZooKeeperPtr & zk, ClusterInfo & info);
 
     Strings getNodeNames(zkutil::ZooKeeperPtr & zk,
                          const String & zk_root,

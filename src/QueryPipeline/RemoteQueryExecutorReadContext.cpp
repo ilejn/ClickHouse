@@ -16,6 +16,7 @@ namespace ErrorCodes
     extern const int CANNOT_READ_FROM_SOCKET;
     extern const int CANNOT_OPEN_FILE;
     extern const int SOCKET_TIMEOUT;
+    extern const int ATTEMPT_TO_READ_AFTER_EOF;
 }
 
 RemoteQueryExecutorReadContext::RemoteQueryExecutorReadContext(
@@ -54,19 +55,38 @@ void RemoteQueryExecutorReadContext::Task::run(AsyncCallback async_callback, Sus
     if (read_context.executor.needToSkipUnavailableShard())
         return;
 
-    while (true)
-    {
-        read_context.has_read_packet_part = PacketPart::None;
+    bool has_data_packets = false;
 
-        if (read_context.read_packet_type_separately)
+    try
+    {
+        while (true)
         {
-            read_context.packet.type = read_context.executor.getConnections().receivePacketTypeUnlocked(async_callback);
-            read_context.has_read_packet_part = PacketPart::Type;
+            read_context.has_read_packet_part = PacketPart::None;
+
+            if (read_context.read_packet_type_separately)
+            {
+                read_context.packet.type = read_context.executor.getConnections().receivePacketTypeUnlocked(async_callback);
+                read_context.has_read_packet_part = PacketPart::Type;
+                suspend_callback();
+            }
+            read_context.packet = read_context.executor.getConnections().receivePacketUnlocked(async_callback);
+            read_context.has_read_packet_part = PacketPart::Body;
+            if (read_context.packet.type == Protocol::Server::Data)
+                has_data_packets = true;
             suspend_callback();
         }
-        read_context.packet = read_context.executor.getConnections().receivePacketUnlocked(async_callback);
-        read_context.has_read_packet_part = PacketPart::Body;
-        suspend_callback();
+    }
+    catch (const Exception & e)
+    {
+        if (e.code() == ErrorCodes::ATTEMPT_TO_READ_AFTER_EOF)
+        {
+            if (!has_data_packets && read_context.executor.skipUnavailableShards())
+            {
+                read_context.has_read_packet_part = PacketPart::None;
+                return;
+            }
+        }
+        throw;
     }
 }
 

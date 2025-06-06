@@ -335,6 +335,13 @@ BlockIO InterpreterSystemQuery::execute()
                 throw ErrnoException(ErrorCodes::CANNOT_KILL, "System call kill(0, SIGTERM) failed");
             break;
         }
+        case Type::PRESHUTDOWN:
+        {
+            getContext()->checkAccess(AccessType::SYSTEM_SHUTDOWN);
+            getContext()->preShutdown();
+            getContext()->unregisterInDynamicClusters();
+            break;
+        }
         case Type::KILL:
         {
             getContext()->checkAccess(AccessType::SYSTEM_SHUTDOWN);
@@ -1527,6 +1534,7 @@ AccessRightsElements InterpreterSystemQuery::getRequiredAccessForDDLOnCluster() 
     switch (query.type)
     {
         case Type::SHUTDOWN:
+        case Type::PRESHUTDOWN:
         case Type::KILL:
         case Type::SUSPEND:
         {

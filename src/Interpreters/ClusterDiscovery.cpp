@@ -455,10 +455,28 @@ void ClusterDiscovery::registerInZk(zkutil::ZooKeeperPtr & zk, ClusterInfo & inf
         return;
     }
 
+    if (context->isPreShutdownCalled())
+    {
+        LOG_DEBUG(log, "PreShutdown called, skip self-registering current node {} in cluster {}", current_node_name, info.name);
+        return;
+    }
+
     LOG_DEBUG(log, "Registering current node {} in cluster {}", current_node_name, info.name);
 
     zk->createOrUpdate(node_path, info.current_node.serialize(), zkutil::CreateMode::Ephemeral);
     LOG_DEBUG(log, "Current node {} registered in cluster {}", current_node_name, info.name);
+}
+
+void ClusterDiscovery::unregisterFromZk(zkutil::ZooKeeperPtr & zk, ClusterInfo & info)
+{
+    if (info.current_node_is_observer)
+        return;
+
+    String node_path = getShardsListPath(info.zk_root) / current_node_name;
+    LOG_DEBUG(log, "Removing current node {} from cluster {}", current_node_name, info.name);
+
+    zk->remove(node_path);
+    LOG_DEBUG(log, "Current node {} removed from cluster {}", current_node_name, info.name);
 }
 
 void ClusterDiscovery::initialUpdate()
@@ -504,6 +522,15 @@ void ClusterDiscovery::initialUpdate()
 
     LOG_DEBUG(log, "Initialized");
     is_initialized = true;
+}
+
+void ClusterDiscovery::unregisterAll()
+{
+    for (auto & [_, info] : clusters_info)
+    {
+        auto zk = context->getDefaultOrAuxiliaryZooKeeper(info.zk_name);
+        unregisterFromZk(zk, info);
+    }
 }
 
 void ClusterDiscovery::findDynamicClusters(

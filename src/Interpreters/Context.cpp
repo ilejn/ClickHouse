@@ -579,6 +579,7 @@ struct ContextSharedPart : boost::noncopyable
     std::map<String, UInt16> server_ports;
 
     std::atomic<bool> shutdown_called = false;
+    std::atomic<bool> preshutdown_called = false;
 
     Stopwatch uptime_watch TSA_GUARDED_BY(mutex);
 
@@ -924,6 +925,11 @@ struct ContextSharedPart : boost::noncopyable
 
         total_memory_tracker.resetOvercommitTracker();
         total_memory_tracker.resetPageCache();
+    }
+
+    void preShutdown()
+    {
+        preshutdown_called = true;
     }
 
     bool hasTraceCollector() const
@@ -4644,7 +4650,6 @@ std::shared_ptr<Cluster> Context::getCluster(const std::string & cluster_name) c
     throw Exception(ErrorCodes::CLUSTER_DOESNT_EXIST, "Requested cluster '{}' not found", cluster_name);
 }
 
-
 std::shared_ptr<Cluster> Context::tryGetCluster(const std::string & cluster_name) const
 {
     std::shared_ptr<Cluster> res = nullptr;
@@ -4663,6 +4668,13 @@ std::shared_ptr<Cluster> Context::tryGetCluster(const std::string & cluster_name
     return res;
 }
 
+void Context::unregisterInDynamicClusters()
+{
+    std::lock_guard lock(shared->clusters_mutex);
+    if (!shared->cluster_discovery)
+        return;
+    shared->cluster_discovery->unregisterAll();
+}
 
 void Context::reloadClusterConfig() const
 {
@@ -5540,12 +5552,20 @@ void Context::stopServers(const ServerType & server_type) const
     shared->stop_servers_callback(server_type);
 }
 
-
 void Context::shutdown() TSA_NO_THREAD_SAFETY_ANALYSIS
 {
     shared->shutdown();
 }
 
+void Context::preShutdown()
+{
+    shared->preshutdown_called = true;
+}
+
+bool Context::isPreShutdownCalled() const
+{
+    return shared->preshutdown_called;
+}
 
 Context::ApplicationType Context::getApplicationType() const
 {

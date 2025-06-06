@@ -227,6 +227,8 @@ public:
 
     IConnections & getConnections() { return *connections; }
 
+    bool skipUnavailableShards() const;
+
     bool needToSkipUnavailableShard() const;
 
     bool isReplicaUnavailable() const { return extension && extension->parallel_reading_coordinator && connections->size() == 0; }
