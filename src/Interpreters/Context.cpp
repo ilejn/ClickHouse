@@ -748,6 +748,7 @@ struct ContextSharedPart : boost::noncopyable
       */
     void shutdown() TSA_NO_THREAD_SAFETY_ANALYSIS
     {
+        preshutdown_called = true;
         bool is_shutdown_called = shutdown_called.exchange(true);
         if (is_shutdown_called)
             return;
