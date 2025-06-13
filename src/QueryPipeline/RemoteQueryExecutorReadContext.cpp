@@ -55,11 +55,9 @@ void RemoteQueryExecutorReadContext::Task::run(AsyncCallback async_callback, Sus
     if (read_context.executor.needToSkipUnavailableShard())
         return;
 
-    bool has_data_packets = false;
-
-    try
+    while (true)
     {
-        while (true)
+        try
         {
             read_context.has_read_packet_part = PacketPart::None;
 
@@ -72,21 +70,20 @@ void RemoteQueryExecutorReadContext::Task::run(AsyncCallback async_callback, Sus
             read_context.packet = read_context.executor.getConnections().receivePacketUnlocked(async_callback);
             read_context.has_read_packet_part = PacketPart::Body;
             if (read_context.packet.type == Protocol::Server::Data)
-                has_data_packets = true;
-            suspend_callback();
+                read_context.has_data_packets = true;
         }
-    }
-    catch (const Exception & e)
-    {
-        if (e.code() == ErrorCodes::ATTEMPT_TO_READ_AFTER_EOF)
+        catch (const Exception & e)
         {
-            if (!has_data_packets && read_context.executor.skipUnavailableShards())
+            if (e.code() == ErrorCodes::ATTEMPT_TO_READ_AFTER_EOF
+                && !read_context.has_data_packets.load() && read_context.executor.skipUnavailableShards())
             {
                 read_context.has_read_packet_part = PacketPart::None;
-                return;
             }
+            else
+                throw;
         }
-        throw;
+
+        suspend_callback();
     }
 }
 
