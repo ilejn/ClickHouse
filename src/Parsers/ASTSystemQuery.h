@@ -17,7 +17,6 @@ public:
     {
         UNKNOWN,
         SHUTDOWN,
-        PRESHUTDOWN,
         KILL,
         SUSPEND,
         DROP_DNS_CACHE,
@@ -83,6 +82,8 @@ public:
         START_FETCHES,
         STOP_MOVES,
         START_MOVES,
+        STOP_SWARM,
+        START_SWARM,
         STOP_REPLICATED_SENDS,
         START_REPLICATED_SENDS,
         STOP_REPLICATION_QUEUES,

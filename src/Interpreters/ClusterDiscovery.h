@@ -38,6 +38,7 @@ public:
 
     ~ClusterDiscovery();
 
+    void registerAll();
     void unregisterAll();
 
 private:

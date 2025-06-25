@@ -391,7 +391,9 @@ bool ClusterDiscovery::upsertCluster(ClusterInfo & cluster_info)
         return true;
     };
 
-    if (!cluster_info.current_node_is_observer && !contains(node_uuids, current_node_name))
+    if (!cluster_info.current_node_is_observer
+        && !context->isStopSwarmCalled()
+        && !contains(node_uuids, current_node_name))
     {
         LOG_ERROR(log, "Can't find current node in cluster '{}', will register again", cluster_info.name);
         registerInZk(zk, cluster_info);
@@ -455,9 +457,9 @@ void ClusterDiscovery::registerInZk(zkutil::ZooKeeperPtr & zk, ClusterInfo & inf
         return;
     }
 
-    if (context->isPreShutdownCalled())
+    if (context->isStopSwarmCalled())
     {
-        LOG_DEBUG(log, "PreShutdown called, skip self-registering current node {} in cluster {}", current_node_name, info.name);
+        LOG_DEBUG(log, "STOP SWARM called, skip self-registering current node {} in cluster {}", current_node_name, info.name);
         return;
     }
 
@@ -522,6 +524,15 @@ void ClusterDiscovery::initialUpdate()
 
     LOG_DEBUG(log, "Initialized");
     is_initialized = true;
+}
+
+void ClusterDiscovery::registerAll()
+{
+    for (auto & [_, info] : clusters_info)
+    {
+        auto zk = context->getDefaultOrAuxiliaryZooKeeper(info.zk_name);
+        registerInZk(zk, info);
+    }
 }
 
 void ClusterDiscovery::unregisterAll()

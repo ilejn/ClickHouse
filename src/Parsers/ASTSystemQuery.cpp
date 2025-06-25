@@ -453,7 +453,6 @@ void ASTSystemQuery::formatImpl(WriteBuffer & ostr, const FormatSettings & setti
         }
         case Type::KILL:
         case Type::SHUTDOWN:
-        case Type::PRESHUTDOWN:
         case Type::DROP_DNS_CACHE:
         case Type::DROP_CONNECTIONS_CACHE:
         case Type::DROP_MMAP_CACHE:
@@ -496,6 +495,8 @@ void ASTSystemQuery::formatImpl(WriteBuffer & ostr, const FormatSettings & setti
         case Type::DROP_PAGE_CACHE:
         case Type::STOP_REPLICATED_DDL_QUERIES:
         case Type::START_REPLICATED_DDL_QUERIES:
+        case Type::STOP_SWARM:
+        case Type::START_SWARM:
             break;
         case Type::UNKNOWN:
         case Type::END:
