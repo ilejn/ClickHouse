@@ -188,6 +188,7 @@ namespace CurrentMetrics
     extern const Metric IcebergCatalogThreads;
     extern const Metric IcebergCatalogThreadsActive;
     extern const Metric IcebergCatalogThreadsScheduled;
+    extern const Metric IsSwarmModeEnabled;
 }
 
 
@@ -579,7 +580,7 @@ struct ContextSharedPart : boost::noncopyable
     std::map<String, UInt16> server_ports;
 
     std::atomic<bool> shutdown_called = false;
-    std::atomic<bool> stop_swarm_called = false;
+    std::atomic<bool> swarm_mode_enabled = true;
 
     Stopwatch uptime_watch TSA_GUARDED_BY(mutex);
 
@@ -748,7 +749,7 @@ struct ContextSharedPart : boost::noncopyable
       */
     void shutdown() TSA_NO_THREAD_SAFETY_ANALYSIS
     {
-        stop_swarm_called = true;
+        swarm_mode_enabled = false;
         bool is_shutdown_called = shutdown_called.exchange(true);
         if (is_shutdown_called)
             return;
@@ -926,16 +927,6 @@ struct ContextSharedPart : boost::noncopyable
 
         total_memory_tracker.resetOvercommitTracker();
         total_memory_tracker.resetPageCache();
-    }
-
-    void stopSwarm()
-    {
-        stop_swarm_called = true;
-    }
-
-    void startSwarm()
-    {
-        stop_swarm_called = false;
     }
 
     bool hasTraceCollector() const
@@ -5571,19 +5562,21 @@ void Context::shutdown() TSA_NO_THREAD_SAFETY_ANALYSIS
     shared->shutdown();
 }
 
-void Context::stopSwarm()
+void Context::stopSwarmMode()
 {
-    shared->stop_swarm_called = true;
+    CurrentMetrics::set(CurrentMetrics::IsSwarmModeEnabled, 0);
+    shared->swarm_mode_enabled = false;
 }
 
-void Context::startSwarm()
+void Context::startSwarmMode()
 {
-    shared->stop_swarm_called = false;
+    shared->swarm_mode_enabled = true;
+    CurrentMetrics::set(CurrentMetrics::IsSwarmModeEnabled, 1);
 }
 
-bool Context::isStopSwarmCalled() const
+bool Context::isSwarmModeEnabled() const
 {
-    return shared->stop_swarm_called;
+    return shared->swarm_mode_enabled;
 }
 
 Context::ApplicationType Context::getApplicationType() const

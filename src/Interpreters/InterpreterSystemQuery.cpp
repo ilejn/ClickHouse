@@ -715,18 +715,18 @@ BlockIO InterpreterSystemQuery::execute()
         case Type::START_MOVES:
             startStopAction(ActionLocks::PartsMove, true);
             break;
-        case Type::STOP_SWARM:
+        case Type::STOP_SWARM_MODE:
         {
             getContext()->checkAccess(AccessType::SYSTEM_SWARM);
-            getContext()->stopSwarm();
+            getContext()->stopSwarmMode();
             getContext()->unregisterInDynamicClusters();
             break;
         }
-        case Type::START_SWARM:
+        case Type::START_SWARM_MODE:
         {
             getContext()->checkAccess(AccessType::SYSTEM_SWARM);
-            getContext()->startSwarm();
             getContext()->registerInDynamicClusters();
+            getContext()->startSwarmMode();
             break;
         }
         case Type::STOP_FETCHES:
@@ -1637,8 +1637,8 @@ AccessRightsElements InterpreterSystemQuery::getRequiredAccessForDDLOnCluster() 
                 required_access.emplace_back(AccessType::SYSTEM_MOVES, query.getDatabase(), query.getTable());
             break;
         }
-        case Type::STOP_SWARM:
-        case Type::START_SWARM:
+        case Type::STOP_SWARM_MODE:
+        case Type::START_SWARM_MODE:
         {
             required_access.emplace_back(AccessType::SYSTEM_SWARM);
             break;

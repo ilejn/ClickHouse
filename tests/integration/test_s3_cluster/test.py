@@ -1087,9 +1087,9 @@ def test_graceful_shutdown(started_cluster):
 
     time.sleep(3)
 
-    node_to_shutdown.query("SYSTEM STOP SWARM")
+    node_to_shutdown.query("SYSTEM STOP SWARM MODE")
 
-    # enough time to complete processing of objects, started before "SYSTEM STOP SWARM"
+    # enough time to complete processing of objects, started before "SYSTEM STOP SWARM MODE"
     time.sleep(3)
 
     node_to_shutdown.stop_clickhouse(kill=True)

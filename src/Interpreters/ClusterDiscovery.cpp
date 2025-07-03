@@ -392,7 +392,7 @@ bool ClusterDiscovery::upsertCluster(ClusterInfo & cluster_info)
     };
 
     if (!cluster_info.current_node_is_observer
-        && !context->isStopSwarmCalled()
+        && context->isSwarmModeEnabled()
         && !contains(node_uuids, current_node_name))
     {
         LOG_ERROR(log, "Can't find current node in cluster '{}', will register again", cluster_info.name);
@@ -457,9 +457,9 @@ void ClusterDiscovery::registerInZk(zkutil::ZooKeeperPtr & zk, ClusterInfo & inf
         return;
     }
 
-    if (context->isStopSwarmCalled())
+    if (!context->isSwarmModeEnabled())
     {
-        LOG_DEBUG(log, "STOP SWARM called, skip self-registering current node {} in cluster {}", current_node_name, info.name);
+        LOG_DEBUG(log, "STOP SWARM MODE called, skip self-registering current node {} in cluster {}", current_node_name, info.name);
         return;
     }
 

@@ -1411,9 +1411,9 @@ public:
     void shutdown();
 
     /// Stop some works to allow graceful shutdown later
-    void stopSwarm();
-    void startSwarm();
-    bool isStopSwarmCalled() const;
+    void stopSwarmMode();
+    void startSwarmMode();
+    bool isSwarmModeEnabled() const;
 
     bool isInternalQuery() const { return is_internal_query; }
     void setInternalQuery(bool internal) { is_internal_query = internal; }

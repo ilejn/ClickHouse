@@ -1057,9 +1057,9 @@ StorageObjectStorageSource::ReadTaskIterator::ReadTaskIterator(
     : WithContext(context_)
     , callback(callback_)
 {
-    if (getContext()->isStopSwarmCalled())
+    if (!getContext()->isSwarmModeEnabled())
     {
-        LOG_DEBUG(getLogger("StorageObjectStorageSource"), "STOP SWARM called, stop getting new tasks");
+        LOG_DEBUG(getLogger("StorageObjectStorageSource"), "STOP SWARM MODE called, stop getting new tasks");
         return;
     }
 
@@ -1092,9 +1092,9 @@ StorageObjectStorage::ObjectInfoPtr StorageObjectStorageSource::ReadTaskIterator
     size_t current_index = index.fetch_add(1, std::memory_order_relaxed);
     if (current_index >= buffer.size())
     {
-        if (getContext()->isStopSwarmCalled())
+        if (!getContext()->isSwarmModeEnabled())
         {
-            LOG_DEBUG(getLogger("StorageObjectStorageSource"), "STOP SWARM called, stop getting new tasks");
+            LOG_DEBUG(getLogger("StorageObjectStorageSource"), "STOP SWARM MODE called, stop getting new tasks");
             return nullptr;
         }
 
