@@ -108,6 +108,13 @@ public:
         cv.notify_one();
     }
 
+    void wakeup()
+    {
+        std::unique_lock<std::mutex> lk(mu);
+        any_need_update = true;
+        cv.notify_one();
+    }
+
 private:
     std::condition_variable cv;
     std::mutex mu;
@@ -528,20 +535,14 @@ void ClusterDiscovery::initialUpdate()
 
 void ClusterDiscovery::registerAll()
 {
-    for (auto & [_, info] : clusters_info)
-    {
-        auto zk = context->getDefaultOrAuxiliaryZooKeeper(info.zk_name);
-        registerInZk(zk, info);
-    }
+    register_change_flag = RegisterChangeFlag::RCF_REGISTER_ALL;
+    clusters_to_update->wakeup();
 }
 
 void ClusterDiscovery::unregisterAll()
 {
-    for (auto & [_, info] : clusters_info)
-    {
-        auto zk = context->getDefaultOrAuxiliaryZooKeeper(info.zk_name);
-        unregisterFromZk(zk, info);
-    }
+    register_change_flag = RegisterChangeFlag::RCF_UNREGISTER_ALL;
+    clusters_to_update->wakeup();
 }
 
 void ClusterDiscovery::findDynamicClusters(
@@ -766,6 +767,27 @@ bool ClusterDiscovery::runMainThread(std::function<void()> up_to_date_callback)
         if (all_up_to_date)
         {
             up_to_date_callback();
+        }
+
+        RegisterChangeFlag flag = register_change_flag.exchange(RegisterChangeFlag::RCF_NONE);
+
+        if (flag == RegisterChangeFlag::RCF_REGISTER_ALL)
+        {
+            LOG_DEBUG(log, "Register in all dynamic clusters");
+            for (auto & [_, info] : clusters_info)
+            {
+                auto zk = context->getDefaultOrAuxiliaryZooKeeper(info.zk_name);
+                registerInZk(zk, info);
+            }
+        }
+        else if (flag == RegisterChangeFlag::RCF_UNREGISTER_ALL)
+        {
+            LOG_DEBUG(log, "Unregister in all dynamic clusters");
+            for (auto & [_, info] : clusters_info)
+            {
+                auto zk = context->getDefaultOrAuxiliaryZooKeeper(info.zk_name);
+                unregisterFromZk(zk, info);
+            }
         }
     }
     LOG_DEBUG(log, "Worker thread stopped");

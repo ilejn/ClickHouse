@@ -750,6 +750,7 @@ struct ContextSharedPart : boost::noncopyable
     void shutdown() TSA_NO_THREAD_SAFETY_ANALYSIS
     {
         swarm_mode_enabled = false;
+        CurrentMetrics::set(CurrentMetrics::IsSwarmModeEnabled, 0);
         bool is_shutdown_called = shutdown_called.exchange(true);
         if (is_shutdown_called)
             return;
@@ -4665,7 +4666,7 @@ std::shared_ptr<Cluster> Context::tryGetCluster(const std::string & cluster_name
     return res;
 }
 
-void Context::unregisterInDynamicClusters()
+void Context::unregisterInAutodiscoveryClusters()
 {
     std::lock_guard lock(shared->clusters_mutex);
     if (!shared->cluster_discovery)
@@ -4673,7 +4674,7 @@ void Context::unregisterInDynamicClusters()
     shared->cluster_discovery->unregisterAll();
 }
 
-void Context::registerInDynamicClusters()
+void Context::registerInAutodiscoveryClusters()
 {
     std::lock_guard lock(shared->clusters_mutex);
     if (!shared->cluster_discovery)
@@ -5562,16 +5563,24 @@ void Context::shutdown() TSA_NO_THREAD_SAFETY_ANALYSIS
     shared->shutdown();
 }
 
-void Context::stopSwarmMode()
+bool Context::stopSwarmMode()
 {
-    CurrentMetrics::set(CurrentMetrics::IsSwarmModeEnabled, 0);
-    shared->swarm_mode_enabled = false;
+    bool expected_is_enabled = true;
+    bool is_stopped_now = shared->swarm_mode_enabled.compare_exchange_strong(expected_is_enabled, false);
+    if (is_stopped_now)
+        CurrentMetrics::set(CurrentMetrics::IsSwarmModeEnabled, 0);
+    // return true if stop successful
+    return is_stopped_now;
 }
 
-void Context::startSwarmMode()
+bool Context::startSwarmMode()
 {
-    shared->swarm_mode_enabled = true;
-    CurrentMetrics::set(CurrentMetrics::IsSwarmModeEnabled, 1);
+    bool expected_is_enabled = false;
+    bool is_started_now = shared->swarm_mode_enabled.compare_exchange_strong(expected_is_enabled, true);
+    if (is_started_now)
+        CurrentMetrics::set(CurrentMetrics::IsSwarmModeEnabled, 1);
+    // return true if start successful
+    return is_started_now;
 }
 
 bool Context::isSwarmModeEnabled() const

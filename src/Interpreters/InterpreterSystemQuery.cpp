@@ -718,15 +718,15 @@ BlockIO InterpreterSystemQuery::execute()
         case Type::STOP_SWARM_MODE:
         {
             getContext()->checkAccess(AccessType::SYSTEM_SWARM);
-            getContext()->stopSwarmMode();
-            getContext()->unregisterInDynamicClusters();
+            if (getContext()->stopSwarmMode())
+                getContext()->unregisterInAutodiscoveryClusters();
             break;
         }
         case Type::START_SWARM_MODE:
         {
             getContext()->checkAccess(AccessType::SYSTEM_SWARM);
-            getContext()->registerInDynamicClusters();
-            getContext()->startSwarmMode();
+            if (getContext()->startSwarmMode())
+                getContext()->registerInAutodiscoveryClusters();
             break;
         }
         case Type::STOP_FETCHES:

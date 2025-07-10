@@ -74,6 +74,9 @@ void RemoteQueryExecutorReadContext::Task::run(AsyncCallback async_callback, Sus
         }
         catch (const Exception & e)
         {
+            /// If cluster node unxepectedly shutted down (kill/segfault/power off/etc.) socket just closes.
+            /// If initiator did not process any data packets before, this fact can be ignored.
+            /// Unprocessed tasks will be executed on other nodes.
             if (e.code() == ErrorCodes::ATTEMPT_TO_READ_AFTER_EOF
                 && !read_context.has_data_packets.load() && read_context.executor.skipUnavailableShards())
             {
