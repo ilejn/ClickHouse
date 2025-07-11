@@ -72,16 +72,27 @@ size_t StorageObjectStorageStableTaskDistributor::getReplicaForFile(const String
         return 0;
 
     /// Rendezvous hashing
-    size_t best_id = 0;
-    UInt64 best_weight = sipHash64(ids_of_nodes[0] + file_path);
-    for (size_t id = 1; id < nodes_count; ++id)
+    auto replica = replica_to_files_to_be_processed.begin();
+    if (replica == replica_to_files_to_be_processed.end())
+        throw Exception(
+            ErrorCodes::LOGICAL_ERROR,
+            "No active replicas, can't find best replica for file {}",
+            file_path
+        );
+
+    size_t best_id = replica->first;
+    UInt64 best_weight = sipHash64(ids_of_nodes[best_id] + file_path);
+    ++replica;
+    while (replica != replica_to_files_to_be_processed.end())
     {
+        size_t id = replica->first;
         UInt64 weight = sipHash64(ids_of_nodes[id] + file_path);
         if (weight > best_weight)
         {
             best_weight = weight;
             best_id = id;
         }
+        ++replica;
     }
     return best_id;
 }
@@ -264,9 +275,9 @@ void StorageObjectStorageStableTaskDistributor::rescheduleTasksFromReplica(size_
             "All replicas were marked as lost"
         );
 
-    for (const auto & file_path : processed_file_list_ptr->second)
-        unprocessed_files[file_path] = number_of_current_replica;
     replica_to_files_to_be_processed.erase(number_of_current_replica);
+    for (const auto & file_path : processed_file_list_ptr->second)
+        unprocessed_files[file_path] = getReplicaForFile(file_path);
 }
 
 }
