@@ -1864,8 +1864,8 @@ void TCPHandler::receiveHello()
 
         const auto & external_authenticators = server.context()->getAccessControl().getExternalAuthenticators();
 
-        if (!external_authenticators.resolveJWTCredentials(credentials, false))
-            external_authenticators.checkAccessTokenCredentials(credentials);
+        if (!external_authenticators.checkTokenCredentials(credentials))
+            throw Exception(ErrorCodes::AUTHENTICATION_FAILED, "Token is invalid");
 
         session->authenticate(credentials, getClientAddress(client_info));
         return;

@@ -19,9 +19,9 @@ jwt::jwks<jwt::traits::kazuho_picojson> JWKSClient::getJWKS()
     std::shared_lock lock(mutex);
 
     auto now = std::chrono::high_resolution_clock::now();
-    auto diff = std::chrono::duration<double, std::milli>(now - last_request_send).count();
+    auto diff = std::chrono::duration<double>(now - last_request_send).count();
 
-    if (diff < refresh_ms) {
+    if (diff < refresh_timeout) {
         jwt::jwks <jwt::traits::kazuho_picojson> result(cached_jwks);
         return result;
     }

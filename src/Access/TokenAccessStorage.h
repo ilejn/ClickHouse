@@ -48,7 +48,7 @@ private: // IAccessStorage implementations.
     const String & prefix;
 
     String provider_name;
-    re2::RE2 roles_filter;
+    std::optional<re2::RE2> roles_filter = std::nullopt;
 
     std::set<String> common_role_names;                         // role name that should be granted to all users at all times
     mutable std::map<String, std::size_t> external_role_hashes;

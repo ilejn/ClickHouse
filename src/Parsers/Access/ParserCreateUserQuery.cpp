@@ -25,6 +25,11 @@
 namespace DB
 {
 
+namespace ErrorCodes
+{
+    extern const int BAD_ARGUMENTS;
+}
+
 namespace
 {
     bool parseRenameTo(IParserBase::Pos & pos, Expected & expected, std::optional<String> & new_name)
@@ -75,7 +80,7 @@ namespace
             bool expect_ssl_cert_subjects = false;
             bool expect_public_ssh_key = false;
             bool expect_http_auth_server = false;
-            bool expect_claims = false;
+            bool expect_claims = false;   // NOLINT
 
             auto parse_non_password_based_type = [&](auto check_type)
             {
@@ -94,7 +99,8 @@ namespace
                     else if (check_type == AuthenticationType::HTTP)
                         expect_http_auth_server = true;
                     else if (check_type == AuthenticationType::JWT)
-                        expect_claims = true;
+                        throw Exception(ErrorCodes::BAD_ARGUMENTS, "CREATE USER is not supported for JWT");
+                        // expect_claims = true;
                     else if (check_type != AuthenticationType::NO_PASSWORD)
                         expect_password = true;
 

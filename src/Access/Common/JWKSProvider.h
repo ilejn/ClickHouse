@@ -23,7 +23,7 @@ public:
 class JWKSClient : public IJWKSProvider
 {
 public:
-    explicit JWKSClient(const String & uri, const size_t refresh_ms_): refresh_ms(refresh_ms_), jwks_uri(uri) {}
+    explicit JWKSClient(const String & uri, const size_t refresh_ms_): refresh_timeout(refresh_ms_), jwks_uri(uri) {}
 
     ~JWKSClient() override = default;
     JWKSClient(const JWKSClient &) = delete;
@@ -34,7 +34,7 @@ public:
     jwt::jwks<jwt::traits::kazuho_picojson> getJWKS() override;
 
 private:
-    size_t refresh_ms;
+    size_t refresh_timeout;
     Poco::URI jwks_uri;
 
     std::shared_mutex mutex;

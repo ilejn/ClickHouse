@@ -20,12 +20,14 @@ namespace ErrorCodes
 
 TokenAccessStorage::TokenAccessStorage(const String & storage_name_, AccessControl & access_control_, const Poco::Util::AbstractConfiguration & config_, const String & prefix_)
         : IAccessStorage(storage_name_), access_control(access_control_), config(config_), prefix(prefix_),
-          roles_filter(config.getString(prefix.empty() ? "" : prefix + "." + "roles_filter", "")),
         memory_storage(storage_name_, access_control.getChangesNotifier(), false)
 {
     std::lock_guard lock(mutex);
 
     const String prefix_str = (prefix.empty() ? "" : prefix + ".");
+
+    if (config.has(prefix_str + "roles_filter"))
+        roles_filter.emplace(config.getString(prefix_str + "roles_filter"));
 
     provider_name = config.getString(prefix_str + "processor");
     if (provider_name.empty())
@@ -35,7 +37,7 @@ TokenAccessStorage::TokenAccessStorage(const String & storage_name_, AccessContr
     if (config.has(prefix_str + "common_roles"))
     {
         Poco::Util::AbstractConfiguration::Keys role_names;
-        config.keys(prefix_str + "roles", role_names);
+        config.keys(prefix_str + "common_roles", role_names);
 
         common_roles_cfg.insert(role_names.begin(), role_names.end());
     }
@@ -191,7 +193,7 @@ bool TokenAccessStorage::areTokenCredentialsValidNoLock(const User & user, const
         return false;
 
     if (const auto * token_credentials = dynamic_cast<const TokenCredentials *>(&credentials))
-        return external_authenticators.checkAccessTokenCredentials(*token_credentials);
+        return external_authenticators.checkTokenCredentials(*token_credentials);
 
     return false;
 }
@@ -301,7 +303,7 @@ void TokenAccessStorage::assignRolesNoLock(User & user, const std::set<String> &
     if (external_roles.empty())
         roles_per_users.erase(user_name);
     else
-        roles_per_users[user_name] = std::move(external_roles);
+        roles_per_users[user_name] = external_roles;
 
     external_role_hashes[user_name] = external_roles_hash;
 }
@@ -346,13 +348,13 @@ std::optional<AuthResult> TokenAccessStorage::authenticateImpl(
 
     const auto & token_credentials = typeid_cast<const TokenCredentials &>(credentials);
 
-    if (!external_authenticators.checkAccessTokenCredentialsByExactProcessor(token_credentials, provider_name))
+    if (!external_authenticators.checkTokenCredentials(token_credentials, provider_name))
     {
         // Even though token itself may be valid (especially in case of a jwt token), authentication has just failed.
         if (throw_if_user_not_exists)
             throwNotFound(AccessEntityType::USER, credentials.getUserName(), getStorageName());
-        else
-            return {};
+
+        return {};
     }
 
     std::shared_ptr<User> new_user;
@@ -369,20 +371,21 @@ std::optional<AuthResult> TokenAccessStorage::authenticateImpl(
         throwAddressNotAllowed(address);
 
     std::set<String> external_roles;
-    if (!roles_filter.ok())
+    if (roles_filter.has_value() && roles_filter.value().ok())
     {
-        external_roles = token_credentials.getGroups();
-        LOG_TRACE(getLogger(), "{}: No external role filtering set, applying all available groups", getStorageName());
-    }
-    else
-    {
+        LOG_TRACE(getLogger(), "{}: External role filter found, applying only matching groups", getStorageName());
         for (const auto & group: token_credentials.getGroups()) {
-            if (RE2::FullMatch(group, roles_filter))
+            if (RE2::FullMatch(group, roles_filter.value()))
             {
                 external_roles.insert(group);
                 LOG_TRACE(getLogger(), "{}: Granted role (group) {} to user", getStorageName(), user->getName());
             }
         }
+    }
+    else
+    {
+        LOG_TRACE(getLogger(), "{}: No external role filtering set, applying all available groups", getStorageName());
+        external_roles = token_credentials.getGroups();
     }
 
     if (new_user)

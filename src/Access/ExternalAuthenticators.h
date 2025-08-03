@@ -1,10 +1,9 @@
 #pragma once
 
-#include <Access/AccessTokenProcessor.h>
+#include <Access/TokenProcessors.h>
 #include <Access/Credentials.h>
 #include <Access/GSSAcceptor.h>
 #include <Access/HTTPAuthClient.h>
-#include <Access/JWTValidator.h>
 #include <Access/LDAPClient.h>
 #include <Interpreters/ClientInfo.h>
 #include <base/defines.h>
@@ -49,15 +48,9 @@ public:
     bool checkKerberosCredentials(const String & realm, const GSSAcceptorContext & credentials) const;
     bool checkHTTPBasicCredentials(const String & server, const BasicCredentials & credentials, const ClientInfo & client_info, SettingsChanges & settings) const;
 
-    bool resolveJWTCredentials(const TokenCredentials & credentials, bool throw_not_configured) const;
-    bool checkJWTClaims(const String & claims, const TokenCredentials & credentials) const;
-
-    bool checkAccessTokenCredentials(const TokenCredentials & credentials) const;
-    bool checkAccessTokenCredentialsByExactProcessor(const TokenCredentials & credentials, const String & name) const;
+    bool checkTokenCredentials(const TokenCredentials & credentials, const String & processor_name = "") const;
 
     GSSAcceptorContext::Params getKerberosParams() const;
-
-    bool isJWTAllowed() const;
 
 private:
     HTTPAuthClientParams getHTTPAuthenticationParams(const String& server) const;
@@ -69,27 +62,33 @@ private:
         LDAPClient::SearchResultsList last_successful_role_search_results;
     };
 
-    struct AccessTokenCacheEntry
+    using LDAPCache = std::unordered_map<String, LDAPCacheEntry>; // user name   -> cache entry
+    using LDAPCaches = std::map<String, LDAPCache>;               // server name -> cache
+    using LDAPParams = std::map<String, LDAPClient::Params>;      // server name -> params
+
+    mutable std::mutex mutex;
+    LDAPParams ldap_client_params_blueprint TSA_GUARDED_BY(mutex) ;
+    mutable LDAPCaches ldap_caches TSA_GUARDED_BY(mutex) ;
+    std::optional<GSSAcceptorContext::Params> kerberos_params TSA_GUARDED_BY(mutex) ;
+    std::unordered_map<String, HTTPAuthClientParams> http_auth_servers TSA_GUARDED_BY(mutex) ;
+    mutable std::unordered_map<String, std::unique_ptr<ITokenProcessor>> token_processors TSA_GUARDED_BY(mutex) ;
+
+    struct TokenCacheEntry
     {
         std::chrono::system_clock::time_point expires_at;
         String user_name;
         std::set<String> external_roles;
     };
 
-    using LDAPCache = std::unordered_map<String, LDAPCacheEntry>; // user name   -> cache entry
-    using LDAPCaches = std::map<String, LDAPCache>;               // server name -> cache
-    using LDAPParams = std::map<String, LDAPClient::Params>;      // server name -> params
+    /// Home-made simple bi-mapping, needed to effectively clean up cache from old tokens.
+    using TokenToUsernameCache = std::unordered_map<String, TokenCacheEntry>;  // Access token -> cache entry
+    using UsernameToTokenCache = std::unordered_map<String, String>;                 // User name -> access token
 
-    using AccessTokenCache = std::unordered_map<String, AccessTokenCacheEntry>; // Access token -> cache entry
+    mutable TokenToUsernameCache access_token_to_username_cache TSA_GUARDED_BY(mutex) ;
+    mutable UsernameToTokenCache username_to_access_token_cache TSA_GUARDED_BY(mutex) ;
 
-    mutable std::mutex mutex;
-    LDAPParams ldap_client_params_blueprint TSA_GUARDED_BY(mutex) ;
-    mutable LDAPCaches ldap_caches TSA_GUARDED_BY(mutex) ;
-    mutable AccessTokenCache access_token_cache TSA_GUARDED_BY(mutex) ;
-    std::optional<GSSAcceptorContext::Params> kerberos_params TSA_GUARDED_BY(mutex) ;
-    std::unordered_map<String, HTTPAuthClientParams> http_auth_servers TSA_GUARDED_BY(mutex) ;
-    std::unordered_map<String, std::unique_ptr<IJWTValidator>> jwt_validators TSA_GUARDED_BY(mutex) ;
-    std::unordered_map<String, std::unique_ptr<IAccessTokenProcessor>> token_processors TSA_GUARDED_BY(mutex) ;
+    bool checkCredentialsAgainstProcessor(const ITokenProcessor & processor,
+                                          const TokenCredentials & credentials) const TSA_REQUIRES(mutex);
 
     void resetImpl() TSA_REQUIRES(mutex);
 };

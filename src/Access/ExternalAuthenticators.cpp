@@ -1,6 +1,5 @@
 #include <Access/AccessControl.h>
 #include <Access/Credentials.h>
-#include <Access/JWTValidator.h>
 #include <Access/ExternalAuthenticators.h>
 #include <Access/LDAPClient.h>
 #include <Access/SettingsAuthResponseParser.h>
@@ -287,13 +286,7 @@ void ExternalAuthenticators::resetImpl()
     ldap_client_params_blueprint.clear();
     ldap_caches.clear();
     kerberos_params.reset();
-    jwt_validators.clear();
-}
-
-bool ExternalAuthenticators::isJWTAllowed() const
-{
-    std::lock_guard lock(mutex);
-    return !jwt_validators.empty();
+    token_processors.clear();
 }
 
 void ExternalAuthenticators::reset()
@@ -302,30 +295,7 @@ void ExternalAuthenticators::reset()
     resetImpl();
 }
 
-void parseJWTValidators(std::unordered_map<String, std::unique_ptr<IJWTValidator>> & jwt_validators,
-                        const Poco::Util::AbstractConfiguration & config,
-                        const String & jwt_validators_config,
-                        LoggerPtr log)
-{
-    Poco::Util::AbstractConfiguration::Keys jwt_validators_keys;
-    config.keys(jwt_validators_config, jwt_validators_keys);
-    jwt_validators.clear();
-    for (const auto & jwt_validator : jwt_validators_keys)
-    {
-        if (jwt_validator == "settings_key") continue;
-        String prefix = fmt::format("{}.{}", jwt_validators_config, jwt_validator);
-        try
-        {
-            jwt_validators[jwt_validator] = IJWTValidator::parseJWTValidator(config, prefix, jwt_validator);
-        }
-        catch (...)
-        {
-            tryLogCurrentException(log, "Could not parse JWT validator" + backQuote(jwt_validator));
-        }
-    }
-}
-
-void parseAccessTokenProcessors(std::unordered_map<String, std::unique_ptr<IAccessTokenProcessor>> & token_processors,
+void parseTokenProcessors(std::unordered_map<String, std::unique_ptr<ITokenProcessor>> & token_processors,
                         const Poco::Util::AbstractConfiguration & config,
                         const String & token_processors_config,
                         LoggerPtr log)
@@ -340,11 +310,11 @@ void parseAccessTokenProcessors(std::unordered_map<String, std::unique_ptr<IAcce
         String prefix = fmt::format("{}.{}", token_processors_config, processor);
         try
         {
-            token_processors[processor] = IAccessTokenProcessor::parseTokenProcessor(config, prefix, processor);
+            token_processors[processor] = ITokenProcessor::parseTokenProcessor(config, prefix, processor);
         }
         catch (...)
         {
-            tryLogCurrentException(log, "Could not parse access token processor" + backQuote(processor));
+            tryLogCurrentException(log, "Could not parse token processor" + backQuote(processor));
         }
     }
 }
@@ -452,8 +422,7 @@ void ExternalAuthenticators::setConfiguration(const Poco::Util::AbstractConfigur
         tryLogCurrentException(log, "Could not parse Kerberos section");
     }
 
-    parseJWTValidators(jwt_validators, config, jwt_validators_config, log);
-    parseAccessTokenProcessors(token_processors, config, token_processors_config, log);
+    parseTokenProcessors(token_processors, config, token_processors_config, log);
 }
 
 static UInt128 computeParamsHash(const LDAPClient::Params & params, const LDAPClient::RoleSearchParamsList * role_search_params)
@@ -632,71 +601,65 @@ HTTPAuthClientParams ExternalAuthenticators::getHTTPAuthenticationParams(const S
     return it->second;
 }
 
-bool ExternalAuthenticators::resolveJWTCredentials(const TokenCredentials & credentials, bool throw_not_configured = true) const
+bool ExternalAuthenticators::checkCredentialsAgainstProcessor(const ITokenProcessor & processor,
+                                                              const TokenCredentials & credentials) const
 {
-    std::lock_guard lock{mutex};
-
-    const auto token = String(credentials.getToken());
-
-    if (jwt_validators.empty() && throw_not_configured)
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "JWT authentication is not configured");
-
-    for (const auto & it : jwt_validators)
+    if (processor.resolveAndValidate(credentials))
     {
-        String username;
-        if (it.second->validate("", token, username))
+        TokenCacheEntry cache_entry;
+        cache_entry.user_name = credentials.getUserName();
+        cache_entry.external_roles = credentials.getGroups();
+
+        auto default_expiration_ts = std::chrono::system_clock::now()
+                                     + std::chrono::minutes(processor.getTokenCacheLifetime());
+
+        if (credentials.getExpiresAt().has_value())
         {
-            /// Credentials are passed as const everywhere up the flow, so we have to comply,
-            /// in this case const_cast looks acceptable.
-            const_cast<TokenCredentials &>(credentials).setUserName(username);
-            LOG_TRACE(getLogger("JWTAuthentication"), "Extracted username {} from JWT by {}", username, it.first);
-            return true;
+            if (credentials.getExpiresAt().value() < default_expiration_ts)
+                cache_entry.expires_at = credentials.getExpiresAt().value();
         }
-        LOG_TRACE(getLogger("JWTAuthentication"), "Failed authentication with JWT by {}", it.first);
+        else
+        {
+            cache_entry.expires_at = default_expiration_ts;
+        }
+
+        LOG_DEBUG(getLogger("AccessTokenAuthentication"), "Authenticated user {} with access token by {}", credentials.getUserName(), processor.getProcessorName());
+
+        // CHeck if a cache entry for the same user but with another token exists -- old cache entry is considered outdated and removed
+        auto old_token_iter = username_to_access_token_cache.find(cache_entry.user_name);
+        if (old_token_iter != username_to_access_token_cache.end())
+        {
+            access_token_to_username_cache.erase(old_token_iter->second);
+            username_to_access_token_cache.erase(old_token_iter);
+        }
+
+        access_token_to_username_cache[credentials.getToken()] = cache_entry;
+        username_to_access_token_cache[cache_entry.user_name] = credentials.getToken();
+        LOG_TRACE(getLogger("AccessTokenAuthentication"), "Cache entry for user {} added", cache_entry.user_name);
+
+        return true;
     }
+    LOG_TRACE(getLogger("AccessTokenAuthentication"), "Failed authentication with access token by {}", processor.getProcessorName());
+
     return false;
 }
 
-bool ExternalAuthenticators::checkJWTClaims(const String & claims, const TokenCredentials & credentials) const
-{
-    std::lock_guard lock{mutex};
-
-    const auto token = String(credentials.getToken());
-
-    if (jwt_validators.empty())
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "JWT authentication is not configured");
-
-    for (const auto & it : jwt_validators)
-    {
-        String username;
-        if (it.second->validate(claims, token, username))
-        {
-            /// Credentials are passed as const everywhere up the flow, so we have to comply,
-            /// in this case const_cast looks acceptable.
-            const_cast<TokenCredentials &>(credentials).setUserName(username);
-            LOG_DEBUG(getLogger("JWTAuthentication"), "Authenticated with JWT for {} by {}", username, it.first);
-            return true;
-        }
-        LOG_TRACE(getLogger("JWTAuthentication"), "Failed authentication with JWT by {}", it.first);
-    }
-    return false;
-}
-
-bool ExternalAuthenticators::checkAccessTokenCredentials(const TokenCredentials & credentials) const
+bool ExternalAuthenticators::checkTokenCredentials(const TokenCredentials & credentials, const String & processor_name) const
 {
     std::lock_guard lock{mutex};
 
     if (token_processors.empty())
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Access token authentication is not configured");
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Token authentication is not configured");
 
     /// lookup token in local cache if not expired.
-    auto cached_entry_iter = access_token_cache.find(credentials.getToken());
-    if (cached_entry_iter != access_token_cache.end())
+    auto cached_entry_iter = access_token_to_username_cache.find(credentials.getToken());
+    if (cached_entry_iter != access_token_to_username_cache.end())
     {
-        if (cached_entry_iter->second.expires_at <= std::chrono::system_clock::now())
+        if (cached_entry_iter->second.expires_at <= std::chrono::system_clock::now()) // Token found in cache, but already outdated -- need to remove it.
         {
             LOG_TRACE(getLogger("AccessTokenAuthentication"), "Cache entry for user {} expired, removing", cached_entry_iter->second.user_name);
-            access_token_cache.erase(cached_entry_iter);
+            access_token_to_username_cache.erase(cached_entry_iter);
+            username_to_access_token_cache.erase(cached_entry_iter->second.user_name);
         }
         else
         {
@@ -708,60 +671,17 @@ bool ExternalAuthenticators::checkAccessTokenCredentials(const TokenCredentials 
         }
     }
 
-    for (const auto & it : token_processors)
+    if (processor_name.empty())
     {
-        if (it.second->resolveAndValidate(credentials))
+        for (const auto & it: token_processors)
         {
-            AccessTokenCacheEntry cache_entry;
-            cache_entry.user_name = credentials.getUserName();
-            cache_entry.external_roles = credentials.getGroups();
-
-            auto default_expiration_ts = std::chrono::system_clock::now()
-                                         + std::chrono::minutes(it.second->getCacheInvalidationInterval());
-
-            if (credentials.getExpiresAt().has_value())
-            {
-                if (credentials.getExpiresAt().value() < default_expiration_ts)
-                    cache_entry.expires_at = credentials.getExpiresAt().value();
-            }
-            else
-            {
-                cache_entry.expires_at = default_expiration_ts;
-            }
-            LOG_TRACE(getLogger("AccessTokenAuthentication"), "Cache entry for user {} added", cache_entry.user_name);
-
-            access_token_cache[credentials.getToken()] = cache_entry;
-            LOG_DEBUG(getLogger("AccessTokenAuthentication"), "Authenticated user {} with access token by {}", credentials.getUserName(), it.first);
-            return true;
-        }
-        LOG_TRACE(getLogger("AccessTokenAuthentication"), "Failed authentication with access token by {}", it.first);
-    }
-    return false;
-}
-
-bool ExternalAuthenticators::checkAccessTokenCredentialsByExactProcessor(const TokenCredentials & credentials, const String & name) const
-{
-    std::lock_guard lock{mutex};
-
-    if (token_processors.empty())
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Access token authentication is not configured");
-
-    for (const auto & it : token_processors)
-    {
-        if (name == it.second->getName())
-        {
-            if (it.second->resolveAndValidate(credentials)) {
-                LOG_DEBUG(getLogger("AccessTokenAuthentication"), "Authenticated user {} with access token by {}",
-                          credentials.getUserName(), it.first);
+            if (checkCredentialsAgainstProcessor(*it.second, credentials))
                 return true;
-            } else
-            {
-                LOG_TRACE(getLogger("AccessTokenAuthentication"), "Failed authentication with access token by processor {}", name);
-                return false;
-            }
         }
     }
-    LOG_TRACE(getLogger("AccessTokenAuthentication"), "Failed authentication with access token: no processor with name {}", name);
+    else
+        return token_processors.contains(processor_name) && checkCredentialsAgainstProcessor(*token_processors[processor_name], credentials);
+
     return false;
 }
 
