@@ -511,9 +511,8 @@ IdToName buildIdToNameMap(const Poco::JSON::Object::Ptr & metadata_obj)
     for (size_t i = 0; i < schemas->size(); ++i)
     {
         auto schema = schemas->getObject(i);
-        if (!schema || !schema->has("schema-id"))
-            continue;
-        if (schema->getValue<Int32>("schema-id") != current_schema_id)
+
+        if (!schema || !schema->has("schema-id") || (schema->getValue<Int32>("schema-id") != current_schema_id))
             continue;
 
         if (auto fields = schema->getArray("fields"))
@@ -1169,23 +1168,13 @@ std::optional<size_t> IcebergMetadata::totalBytes(ContextPtr local_context) cons
 std::optional<String> IcebergMetadata::partitionKey(ContextPtr) const
 {
     SharedLockGuard lock(mutex);
-    if (relevant_snapshot->partition_key.has_value())
-    {
-        return relevant_snapshot->partition_key;
-    }
-
-    return std::nullopt;
+    return relevant_snapshot->partition_key;
 }
 
 std::optional<String> IcebergMetadata::sortingKey(ContextPtr) const
 {
     SharedLockGuard lock(mutex);
-    if (relevant_snapshot->sorting_key.has_value())
-    {
-        return relevant_snapshot->sorting_key;
-    }
-
-    return std::nullopt;
+    return relevant_snapshot->sorting_key;
 }
 
 
