@@ -858,3 +858,67 @@ def test_cluster_hosts_limit(started_cluster):
         """
     )
     assert int(hosts_2) == 2
+
+
+def test_joins(started_cluster):
+    node = started_cluster.instances["s0_0_0"]
+
+    # Table join_table only exists on the node 's0_0_0'.
+    node.query(
+        """
+        CREATE TABLE IF NOT EXISTS join_table (
+            id UInt32,
+            name String
+        ) ENGINE=MergeTree()
+        ORDER BY id;
+        """
+    )
+
+    node.query(
+        f"""
+        INSERT INTO join_table
+        SELECT value, concat(name, '_jt') FROM s3Cluster('cluster_simple',
+            'http://minio1:9001/root/data/{{clickhouse,database}}/*', 'minio', '{minio_secret_key}', 'CSV',
+            'name String, value UInt32, polygon Array(Array(Tuple(Float64, Float64)))');
+        """
+    )
+
+    result1 = node.query(
+        f"""
+        SELECT t1.name, t2.name FROM
+            s3Cluster('cluster_simple',
+                'http://minio1:9001/root/data/{{clickhouse,database}}/*', 'minio', '{minio_secret_key}', 'CSV',
+                'name String, value UInt32, polygon Array(Array(Tuple(Float64, Float64)))') AS t1
+        JOIN
+            join_table AS t2
+        ON t1.value = t2.id
+        ORDER BY t1.name
+        SETTINGS prefer_global_in_and_join=1;
+        """
+    )
+
+    res = list(map(str.split, result1.splitlines()))
+
+    assert len(res) == 25
+
+    for line in res:
+        if len(line) == 2:
+            assert line[1] == f"{line[0]}_jt"
+        else:
+            assert line == ["_jt"] # for empty name
+
+    result2 = node.query(
+        f"""
+        SELECT t1.name, t2.name FROM
+            join_table AS t2
+        JOIN
+            s3Cluster('cluster_simple',
+                'http://minio1:9001/root/data/{{clickhouse,database}}/*', 'minio', '{minio_secret_key}', 'CSV',
+                'name String, value UInt32, polygon Array(Array(Tuple(Float64, Float64)))') AS t1
+        ON t1.value = t2.id
+        ORDER BY t1.name
+        SETTINGS prefer_global_in_and_join=1;
+        """
+    )
+
+    assert result1 == result2

@@ -23,6 +23,12 @@
 #include <Storages/IStorage.h>
 #include <Storages/SelectQueryInfo.h>
 #include <Storages/StorageDictionary.h>
+#include <Storages/extractTableFunctionFromSelectQuery.h>
+#include <Planner/Utils.h>
+#include <Analyzer/QueryTreeBuilder.h>
+#include <Analyzer/QueryNode.h>
+#include <Analyzer/ColumnNode.h>
+#include <Analyzer/InDepthQueryTreeVisitor.h>
 
 #include <algorithm>
 #include <memory>
@@ -41,6 +47,7 @@ namespace Setting
     extern const SettingsString cluster_for_parallel_replicas;
     extern const SettingsNonZeroUInt64 max_parallel_replicas;
     extern const SettingsUInt64 object_storage_max_nodes;
+    extern const SettingsBool prefer_global_in_and_join;
 }
 
 namespace ErrorCodes
@@ -126,6 +133,149 @@ void ReadFromCluster::createExtension(const ActionsDAG::Node * predicate, size_t
     extension = storage->getTaskIteratorExtension(predicate, context, number_of_replicas);
 }
 
+/*
+Helping class to find in query tree first node of required type
+*/
+class SearcherVisitor : public InDepthQueryTreeVisitorWithContext<SearcherVisitor>
+{
+public:
+    using Base = InDepthQueryTreeVisitorWithContext<SearcherVisitor>;
+    using Base::Base;
+
+    explicit SearcherVisitor(QueryTreeNodeType type_, ContextPtr context) : Base(context), type(type_) {}
+
+    bool needChildVisit(QueryTreeNodePtr &, QueryTreeNodePtr & /*child*/)
+    {
+        return !passed_node;
+    }
+
+    void enterImpl(QueryTreeNodePtr & node)
+    {
+        if (passed_node)
+            return;
+
+        auto node_type = node->getNodeType();
+
+        if (node_type == type)
+            passed_node = node;
+    }
+
+    QueryTreeNodePtr getNode() const { return passed_node; }
+
+private:
+    QueryTreeNodeType type;
+    QueryTreeNodePtr passed_node;
+};
+
+/*
+Helping class to find all used columns with specific source
+*/
+class CollectUsedColumnsForSourceVisitor : public InDepthQueryTreeVisitorWithContext<CollectUsedColumnsForSourceVisitor>
+{
+public:
+    using Base = InDepthQueryTreeVisitorWithContext<CollectUsedColumnsForSourceVisitor>;
+    using Base::Base;
+
+    explicit CollectUsedColumnsForSourceVisitor(
+        QueryTreeNodePtr source_,
+        ContextPtr context)
+        : Base(context)
+        , source(source_) {}
+
+    void enterImpl(QueryTreeNodePtr & node)
+    {
+        auto node_type = node->getNodeType();
+
+        if (node_type != QueryTreeNodeType::COLUMN)
+            return;
+
+        auto & column_node = node->as<ColumnNode &>();
+        auto column_source = column_node.getColumnSourceOrNull();
+        if (!column_source)
+            return;
+
+        if (column_source == source)
+        {
+            const auto & name = column_node.getColumnName();
+            if (!names.count(name))
+            {
+                columns.emplace_back(column_node.getColumn());
+                names.insert(name);
+            }
+        }
+    }
+
+    const NamesAndTypes & getColumns() const { return columns; }
+
+private:
+    std::unordered_set<std::string> names;
+    QueryTreeNodePtr source;
+    NamesAndTypes columns;
+};
+
+/*
+Try to make subquery to send on nodes
+Converts
+
+  SELECT s3.c1, s3.c2, t.c3
+  FROM
+    s3Cluster(...) AS s3
+  JOIN
+    localtable as t
+  ON s3.key == t.key
+
+to
+
+  SELECT s3.c1, s3.c2, s3.key
+  FROM
+    s3Cluster(...) AS s3
+*/
+void IStorageCluster::updateQueryToSendWithGlobalJoinIfNeeded(
+    ASTPtr & query_to_send,
+    QueryTreeNodePtr query_tree,
+    const ContextPtr & context)
+{
+    if (!context->getSettingsRef()[Setting::prefer_global_in_and_join])
+        return;
+
+    SearcherVisitor join_searcher(QueryTreeNodeType::JOIN, context);
+    join_searcher.visit(query_tree);
+    if (!join_searcher.getNode())
+        return;
+
+    auto table_function = extractTableFunctionFromSelectQueryPtr(query_to_send);
+    auto query_tree_distributed = buildTableFunctionQueryTree(table_function, context);
+    auto & table_function_ast = table_function->as<ASTFunction &>();
+    query_tree_distributed->setAlias(table_function_ast.alias);
+
+    SearcherVisitor table_function_searcher(QueryTreeNodeType::TABLE_FUNCTION, context);
+    table_function_searcher.visit(query_tree);
+    auto table_function_node = table_function_searcher.getNode();
+
+    if (!table_function_node)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Can't fiund table function node");
+
+    // Find add used columns from table function to make proper projection list
+    CollectUsedColumnsForSourceVisitor collector(table_function_node, context);
+    collector.visit(query_tree);
+    const auto & columns = collector.getColumns();
+
+    auto modified_query_tree = query_tree->clone();
+    auto & query_node = modified_query_tree->as<QueryNode &>();
+
+    query_node.resolveProjectionColumns(columns);
+    auto column_nodes_to_select = std::make_shared<ListNode>();
+    column_nodes_to_select->getNodes().reserve(columns.size());
+    for (auto & column : columns)
+        column_nodes_to_select->getNodes().emplace_back(std::make_shared<ColumnNode>(column, table_function_node));
+    query_node.getProjectionNode() = column_nodes_to_select;
+
+    // Left only table function to send on cluster nodes
+    modified_query_tree = modified_query_tree->cloneAndReplace(query_node.getJoinTree(), query_tree_distributed);
+
+    query_to_send = queryNodeToDistributedSelectQuery(modified_query_tree);
+}
+
 /// The code executes on initiator
 void IStorageCluster::read(
     QueryPlan & query_plan,
@@ -155,13 +305,15 @@ void IStorageCluster::read(
     Block sample_block;
     ASTPtr query_to_send = query_info.query;
 
+    updateQueryToSendWithGlobalJoinIfNeeded(query_to_send, query_info.query_tree, context);
+
     if (context->getSettingsRef()[Setting::allow_experimental_analyzer])
     {
-        sample_block = InterpreterSelectQueryAnalyzer::getSampleBlock(query_info.query, context, SelectQueryOptions(processed_stage));
+        sample_block = InterpreterSelectQueryAnalyzer::getSampleBlock(query_to_send, context, SelectQueryOptions(processed_stage));
     }
     else
     {
-        auto interpreter = InterpreterSelectQuery(query_info.query, context, SelectQueryOptions(processed_stage).analyze());
+        auto interpreter = InterpreterSelectQuery(query_to_send, context, SelectQueryOptions(processed_stage).analyze());
         sample_block = interpreter.getSampleBlock();
         query_to_send = interpreter.getQueryInfo().query->clone();
     }
@@ -169,7 +321,7 @@ void IStorageCluster::read(
     updateQueryToSendIfNeeded(query_to_send, storage_snapshot, context);
 
     RestoreQualifiedNamesVisitor::Data data;
-    data.distributed_table = DatabaseAndTableWithAlias(*getTableExpression(query_info.query->as<ASTSelectQuery &>(), 0));
+    data.distributed_table = DatabaseAndTableWithAlias(*getTableExpression(query_to_send->as<ASTSelectQuery &>(), 0));
     data.remote_table.database = context->getCurrentDatabase();
     data.remote_table.table = getName();
     RestoreQualifiedNamesVisitor(data).visit(query_to_send);
@@ -278,8 +430,16 @@ void ReadFromCluster::initializePipeline(QueryPipelineBuilder & pipeline, const 
 }
 
 QueryProcessingStage::Enum IStorageCluster::getQueryProcessingStage(
-    ContextPtr context, QueryProcessingStage::Enum to_stage, const StorageSnapshotPtr &, SelectQueryInfo &) const
+    ContextPtr context, QueryProcessingStage::Enum to_stage, const StorageSnapshotPtr &, SelectQueryInfo & query_info) const
 {
+    if (context->getSettingsRef()[Setting::prefer_global_in_and_join])
+    {
+        SearcherVisitor join_searcher(QueryTreeNodeType::JOIN, context);
+        join_searcher.visit(query_info.query_tree);
+        if (join_searcher.getNode())
+            return QueryProcessingStage::Enum::FetchColumns;
+    }
+
     /// Initiator executes query on remote node.
     if (context->getClientInfo().query_kind == ClientInfo::QueryKind::INITIAL_QUERY)
         if (to_stage >= QueryProcessingStage::Enum::WithMergeableState)
