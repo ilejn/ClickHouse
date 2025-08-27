@@ -133,6 +133,9 @@ void ReadFromCluster::createExtension(const ActionsDAG::Node * predicate, size_t
     extension = storage->getTaskIteratorExtension(predicate, context, number_of_replicas);
 }
 
+namespace
+{
+
 /*
 Helping class to find in query tree first node of required type
 */
@@ -178,9 +181,12 @@ public:
 
     explicit CollectUsedColumnsForSourceVisitor(
         QueryTreeNodePtr source_,
-        ContextPtr context)
+        ContextPtr context,
+        bool collect_columns_from_other_sources_ = false)
         : Base(context)
-        , source(source_) {}
+        , source(source_)
+        , collect_columns_from_other_sources(collect_columns_from_other_sources_)
+        {}
 
     void enterImpl(QueryTreeNodePtr & node)
     {
@@ -194,7 +200,7 @@ public:
         if (!column_source)
             return;
 
-        if (column_source == source)
+        if ((column_source == source) != collect_columns_from_other_sources)
         {
             const auto & name = column_node.getColumnName();
             if (!names.count(name))
@@ -211,6 +217,9 @@ private:
     std::unordered_set<std::string> names;
     QueryTreeNodePtr source;
     NamesAndTypes columns;
+    bool collect_columns_from_other_sources;
+};
+
 };
 
 /*
@@ -238,42 +247,66 @@ void IStorageCluster::updateQueryToSendWithGlobalJoinIfNeeded(
     if (!context->getSettingsRef()[Setting::prefer_global_in_and_join])
         return;
 
-    SearcherVisitor join_searcher(QueryTreeNodeType::JOIN, context);
-    join_searcher.visit(query_tree);
-    if (!join_searcher.getNode())
-        return;
-
-    auto table_function = extractTableFunctionFromSelectQueryPtr(query_to_send);
-    auto query_tree_distributed = buildTableFunctionQueryTree(table_function, context);
-    auto & table_function_ast = table_function->as<ASTFunction &>();
-    query_tree_distributed->setAlias(table_function_ast.alias);
+    auto modified_query_tree = query_tree->clone();
+    bool need_modify = false;
+    bool can_use_where_on_remote_nodes = true;
 
     SearcherVisitor table_function_searcher(QueryTreeNodeType::TABLE_FUNCTION, context);
     table_function_searcher.visit(query_tree);
     auto table_function_node = table_function_searcher.getNode();
-
     if (!table_function_node)
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Can't fiund table function node");
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Can't find table function node");
 
-    // Find add used columns from table function to make proper projection list
-    CollectUsedColumnsForSourceVisitor collector(table_function_node, context);
-    collector.visit(query_tree);
-    const auto & columns = collector.getColumns();
+    // Find columns from other sources in 'WHERE' condition
+    {
+        CollectUsedColumnsForSourceVisitor collector_where(table_function_node, context, true);
+        auto & query_node = query_tree->as<QueryNode &>();
+        if (query_node.hasWhere())
+            collector_where.visit(query_node.getWhere());
 
-    auto modified_query_tree = query_tree->clone();
-    auto & query_node = modified_query_tree->as<QueryNode &>();
+        // Can't use 'WHERE' on remote node if it contains columns from other sources
+        if (!collector_where.getColumns().empty())
+            can_use_where_on_remote_nodes = false;
 
-    query_node.resolveProjectionColumns(columns);
-    auto column_nodes_to_select = std::make_shared<ListNode>();
-    column_nodes_to_select->getNodes().reserve(columns.size());
-    for (auto & column : columns)
-        column_nodes_to_select->getNodes().emplace_back(std::make_shared<ColumnNode>(column, table_function_node));
-    query_node.getProjectionNode() = column_nodes_to_select;
+        need_modify = true;
+    }
 
-    // Left only table function to send on cluster nodes
-    modified_query_tree = modified_query_tree->cloneAndReplace(query_node.getJoinTree(), query_tree_distributed);
+    SearcherVisitor join_searcher(QueryTreeNodeType::JOIN, context);
+    join_searcher.visit(query_tree);
+    if (join_searcher.getNode())
+    {
+        auto table_function = extractTableFunctionFromSelectQueryPtr(query_to_send);
+        auto query_tree_distributed = buildTableFunctionQueryTree(table_function, context);
+        auto & table_function_ast = table_function->as<ASTFunction &>();
+        query_tree_distributed->setAlias(table_function_ast.alias);
 
-    query_to_send = queryNodeToDistributedSelectQuery(modified_query_tree);
+        // Find add used columns from table function to make proper projection list
+        CollectUsedColumnsForSourceVisitor collector(table_function_node, context);
+        collector.visit(query_tree);
+        const auto & columns = collector.getColumns();
+
+        auto & query_node = modified_query_tree->as<QueryNode &>();
+        query_node.resolveProjectionColumns(columns);
+        auto column_nodes_to_select = std::make_shared<ListNode>();
+        column_nodes_to_select->getNodes().reserve(columns.size());
+        for (auto & column : columns)
+            column_nodes_to_select->getNodes().emplace_back(std::make_shared<ColumnNode>(column, table_function_node));
+        query_node.getProjectionNode() = column_nodes_to_select;
+
+        // Left only table function to send on cluster nodes
+        modified_query_tree = modified_query_tree->cloneAndReplace(query_node.getJoinTree(), query_tree_distributed);
+
+        need_modify = true;
+    }
+
+    if (!can_use_where_on_remote_nodes)
+    {
+        auto & query_node = modified_query_tree->as<QueryNode &>();
+        query_node.getWhere() = {};
+    }
+
+    if (need_modify)
+        query_to_send = queryNodeToDistributedSelectQuery(modified_query_tree);
 }
 
 /// The code executes on initiator
@@ -437,6 +470,21 @@ QueryProcessingStage::Enum IStorageCluster::getQueryProcessingStage(
         SearcherVisitor join_searcher(QueryTreeNodeType::JOIN, context);
         join_searcher.visit(query_info.query_tree);
         if (join_searcher.getNode())
+            return QueryProcessingStage::Enum::FetchColumns;
+
+        SearcherVisitor table_function_searcher(QueryTreeNodeType::TABLE_FUNCTION, context);
+        table_function_searcher.visit(query_info.query_tree);
+        auto table_function_node = table_function_searcher.getNode();
+        if (!table_function_node)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Can't find table function node");
+
+        CollectUsedColumnsForSourceVisitor collector_where(table_function_node, context, true);
+        auto & query_node = query_info.query_tree->as<QueryNode &>();
+        if (query_node.hasWhere())
+            collector_where.visit(query_node.getWhere());
+
+        // Can't use 'WHERE' on remote node if it contains columns from other sources
+        if (!collector_where.getColumns().empty())
             return QueryProcessingStage::Enum::FetchColumns;
     }
 

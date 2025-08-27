@@ -898,7 +898,6 @@ def test_joins(started_cluster):
     )
 
     res = list(map(str.split, result1.splitlines()))
-
     assert len(res) == 25
 
     for line in res:
@@ -922,3 +921,59 @@ def test_joins(started_cluster):
     )
 
     assert result1 == result2
+
+    # With WHERE clause with remote column only
+    result3 = node.query(
+        f"""
+        SELECT t1.name, t2.name FROM
+            s3Cluster('cluster_simple',
+                'http://minio1:9001/root/data/{{clickhouse,database}}/*', 'minio', '{minio_secret_key}', 'CSV',
+                'name String, value UInt32, polygon Array(Array(Tuple(Float64, Float64)))') AS t1
+        JOIN
+            join_table AS t2
+        ON t1.value = t2.id
+        WHERE (t1.value % 2)
+        ORDER BY t1.name
+        SETTINGS prefer_global_in_and_join=1;
+        """
+    )
+
+    res = list(map(str.split, result3.splitlines()))
+    assert len(res) == 8
+
+    # With WHERE clause with local column only
+    result4 = node.query(
+        f"""
+        SELECT t1.name, t2.name FROM
+            s3Cluster('cluster_simple',
+                'http://minio1:9001/root/data/{{clickhouse,database}}/*', 'minio', '{minio_secret_key}', 'CSV',
+                'name String, value UInt32, polygon Array(Array(Tuple(Float64, Float64)))') AS t1
+        JOIN
+            join_table AS t2
+        ON t1.value = t2.id
+        WHERE (t2.id % 2)
+        ORDER BY t1.name
+        SETTINGS prefer_global_in_and_join=1;
+        """
+    )
+
+    assert result3 == result4
+
+    # With WHERE clause with local and remote columns
+    result5 = node.query(
+        f"""
+        SELECT t1.name, t2.name FROM
+            s3Cluster('cluster_simple',
+                'http://minio1:9001/root/data/{{clickhouse,database}}/*', 'minio', '{minio_secret_key}', 'CSV',
+                'name String, value UInt32, polygon Array(Array(Tuple(Float64, Float64)))') AS t1
+        JOIN
+            join_table AS t2
+        ON t1.value = t2.id
+        WHERE (t1.value % 2) AND ((t2.id % 3) == 2)
+        ORDER BY t1.name
+        SETTINGS prefer_global_in_and_join=1;
+        """
+    )
+
+    res = list(map(str.split, result5.splitlines()))
+    assert len(res) == 6
