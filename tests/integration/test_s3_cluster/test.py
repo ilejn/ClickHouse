@@ -893,7 +893,7 @@ def test_joins(started_cluster):
             join_table AS t2
         ON t1.value = t2.id
         ORDER BY t1.name
-        SETTINGS prefer_global_in_and_join=1;
+        SETTINGS object_storage_cluster_join_mode='local';
         """
     )
 
@@ -916,7 +916,7 @@ def test_joins(started_cluster):
                 'name String, value UInt32, polygon Array(Array(Tuple(Float64, Float64)))') AS t1
         ON t1.value = t2.id
         ORDER BY t1.name
-        SETTINGS prefer_global_in_and_join=1;
+        SETTINGS object_storage_cluster_join_mode='local';
         """
     )
 
@@ -934,7 +934,7 @@ def test_joins(started_cluster):
         ON t1.value = t2.id
         WHERE (t1.value % 2)
         ORDER BY t1.name
-        SETTINGS prefer_global_in_and_join=1;
+        SETTINGS object_storage_cluster_join_mode='local';
         """
     )
 
@@ -953,7 +953,7 @@ def test_joins(started_cluster):
         ON t1.value = t2.id
         WHERE (t2.id % 2)
         ORDER BY t1.name
-        SETTINGS prefer_global_in_and_join=1;
+        SETTINGS object_storage_cluster_join_mode='local';
         """
     )
 
@@ -971,7 +971,7 @@ def test_joins(started_cluster):
         ON t1.value = t2.id
         WHERE (t1.value % 2) AND ((t2.id % 3) == 2)
         ORDER BY t1.name
-        SETTINGS prefer_global_in_and_join=1;
+        SETTINGS object_storage_cluster_join_mode='local';
         """
     )
 

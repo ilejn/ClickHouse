@@ -57,7 +57,7 @@ public:
 protected:
     virtual void updateBeforeRead(const ContextPtr &) {}
     virtual void updateQueryToSendIfNeeded(ASTPtr & /*query*/, const StorageSnapshotPtr & /*storage_snapshot*/, const ContextPtr & /*context*/) {}
-    void updateQueryToSendWithGlobalJoinIfNeeded(ASTPtr & query_to_send, QueryTreeNodePtr query_tree, const ContextPtr & context);
+    void updateQueryWithJoinToSendIfNeeded(ASTPtr & query_to_send, QueryTreeNodePtr query_tree, const ContextPtr & context);
 
     virtual void readFallBackToPure(
         QueryPlan & /* query_plan */,
@@ -86,6 +86,9 @@ private:
 
     LoggerPtr log;
     String cluster_name;
+
+    mutable bool has_join = false;
+    mutable bool has_local_columns_in_where = false;
 };
 
 

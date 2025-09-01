@@ -72,6 +72,7 @@ const VersionToSettingsChangesMap & getSettingsChangesHistory()
             // Altinity Antalya modifications atop of 25.6
             {"object_storage_cluster", "", "", "New setting"},
             {"object_storage_max_nodes", 0, 0, "New setting"},
+            {"object_storage_cluster_join_mode", "allow", "allow", "New setting"},
         });
         addSettingsChanges(settings_changes_history, "25.6",
         {

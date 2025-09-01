@@ -47,7 +47,7 @@ namespace Setting
     extern const SettingsString cluster_for_parallel_replicas;
     extern const SettingsNonZeroUInt64 max_parallel_replicas;
     extern const SettingsUInt64 object_storage_max_nodes;
-    extern const SettingsBool prefer_global_in_and_join;
+    extern const SettingsObjectStorageClusterJoinMode object_storage_cluster_join_mode;
 }
 
 namespace ErrorCodes
@@ -239,74 +239,67 @@ to
   FROM
     s3Cluster(...) AS s3
 */
-void IStorageCluster::updateQueryToSendWithGlobalJoinIfNeeded(
+void IStorageCluster::updateQueryWithJoinToSendIfNeeded(
     ASTPtr & query_to_send,
     QueryTreeNodePtr query_tree,
     const ContextPtr & context)
 {
-    if (!context->getSettingsRef()[Setting::prefer_global_in_and_join])
+    auto object_storage_cluster_join_mode = context->getSettingsRef()[Setting::object_storage_cluster_join_mode];
+    switch (object_storage_cluster_join_mode)
+    {
+    case ObjectStorageClusterJoinMode::LOCAL:
+    {
+        auto modified_query_tree = query_tree->clone();
+        bool need_modify = false;
+
+        SearcherVisitor table_function_searcher(QueryTreeNodeType::TABLE_FUNCTION, context);
+        table_function_searcher.visit(query_tree);
+        auto table_function_node = table_function_searcher.getNode();
+        if (!table_function_node)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Can't find table function node");
+
+        if (has_join)
+        {
+            auto table_function = extractTableFunctionFromSelectQueryPtr(query_to_send);
+            auto query_tree_distributed = buildTableFunctionQueryTree(table_function, context);
+            auto & table_function_ast = table_function->as<ASTFunction &>();
+            query_tree_distributed->setAlias(table_function_ast.alias);
+
+            // Find add used columns from table function to make proper projection list
+            CollectUsedColumnsForSourceVisitor collector(table_function_node, context);
+            collector.visit(query_tree);
+            const auto & columns = collector.getColumns();
+
+            auto & query_node = modified_query_tree->as<QueryNode &>();
+            query_node.resolveProjectionColumns(columns);
+            auto column_nodes_to_select = std::make_shared<ListNode>();
+            column_nodes_to_select->getNodes().reserve(columns.size());
+            for (auto & column : columns)
+                column_nodes_to_select->getNodes().emplace_back(std::make_shared<ColumnNode>(column, table_function_node));
+            query_node.getProjectionNode() = column_nodes_to_select;
+
+            // Left only table function to send on cluster nodes
+            modified_query_tree = modified_query_tree->cloneAndReplace(query_node.getJoinTree(), query_tree_distributed);
+
+            need_modify = true;
+        }
+
+        if (has_local_columns_in_where)
+        {
+            auto & query_node = modified_query_tree->as<QueryNode &>();
+            query_node.getWhere() = {};
+        }
+
+        if (need_modify)
+            query_to_send = queryNodeToDistributedSelectQuery(modified_query_tree);
         return;
-
-    auto modified_query_tree = query_tree->clone();
-    bool need_modify = false;
-    bool can_use_where_on_remote_nodes = true;
-
-    SearcherVisitor table_function_searcher(QueryTreeNodeType::TABLE_FUNCTION, context);
-    table_function_searcher.visit(query_tree);
-    auto table_function_node = table_function_searcher.getNode();
-    if (!table_function_node)
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Can't find table function node");
-
-    // Find columns from other sources in 'WHERE' condition
-    {
-        CollectUsedColumnsForSourceVisitor collector_where(table_function_node, context, true);
-        auto & query_node = query_tree->as<QueryNode &>();
-        if (query_node.hasWhere())
-            collector_where.visit(query_node.getWhere());
-
-        // Can't use 'WHERE' on remote node if it contains columns from other sources
-        if (!collector_where.getColumns().empty())
-            can_use_where_on_remote_nodes = false;
-
-        need_modify = true;
     }
-
-    SearcherVisitor join_searcher(QueryTreeNodeType::JOIN, context);
-    join_searcher.visit(query_tree);
-    if (join_searcher.getNode())
-    {
-        auto table_function = extractTableFunctionFromSelectQueryPtr(query_to_send);
-        auto query_tree_distributed = buildTableFunctionQueryTree(table_function, context);
-        auto & table_function_ast = table_function->as<ASTFunction &>();
-        query_tree_distributed->setAlias(table_function_ast.alias);
-
-        // Find add used columns from table function to make proper projection list
-        CollectUsedColumnsForSourceVisitor collector(table_function_node, context);
-        collector.visit(query_tree);
-        const auto & columns = collector.getColumns();
-
-        auto & query_node = modified_query_tree->as<QueryNode &>();
-        query_node.resolveProjectionColumns(columns);
-        auto column_nodes_to_select = std::make_shared<ListNode>();
-        column_nodes_to_select->getNodes().reserve(columns.size());
-        for (auto & column : columns)
-            column_nodes_to_select->getNodes().emplace_back(std::make_shared<ColumnNode>(column, table_function_node));
-        query_node.getProjectionNode() = column_nodes_to_select;
-
-        // Left only table function to send on cluster nodes
-        modified_query_tree = modified_query_tree->cloneAndReplace(query_node.getJoinTree(), query_tree_distributed);
-
-        need_modify = true;
+    case ObjectStorageClusterJoinMode::GLOBAL:
+        // TODO
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "`Global` mode for `object_storage_cluster_join_mode` setting is unimplemented for now");
+    case ObjectStorageClusterJoinMode::ALLOW: // Do nothing special
+        return;
     }
-
-    if (!can_use_where_on_remote_nodes)
-    {
-        auto & query_node = modified_query_tree->as<QueryNode &>();
-        query_node.getWhere() = {};
-    }
-
-    if (need_modify)
-        query_to_send = queryNodeToDistributedSelectQuery(modified_query_tree);
 }
 
 /// The code executes on initiator
@@ -338,7 +331,7 @@ void IStorageCluster::read(
     Block sample_block;
     ASTPtr query_to_send = query_info.query;
 
-    updateQueryToSendWithGlobalJoinIfNeeded(query_to_send, query_info.query_tree, context);
+    updateQueryWithJoinToSendIfNeeded(query_to_send, query_info.query_tree, context);
 
     if (context->getSettingsRef()[Setting::allow_experimental_analyzer])
     {
@@ -465,12 +458,14 @@ void ReadFromCluster::initializePipeline(QueryPipelineBuilder & pipeline, const 
 QueryProcessingStage::Enum IStorageCluster::getQueryProcessingStage(
     ContextPtr context, QueryProcessingStage::Enum to_stage, const StorageSnapshotPtr &, SelectQueryInfo & query_info) const
 {
-    if (context->getSettingsRef()[Setting::prefer_global_in_and_join])
+    auto object_storage_cluster_join_mode = context->getSettingsRef()[Setting::object_storage_cluster_join_mode];
+
+    if (object_storage_cluster_join_mode != ObjectStorageClusterJoinMode::ALLOW)
     {
         SearcherVisitor join_searcher(QueryTreeNodeType::JOIN, context);
         join_searcher.visit(query_info.query_tree);
         if (join_searcher.getNode())
-            return QueryProcessingStage::Enum::FetchColumns;
+            has_join = true;
 
         SearcherVisitor table_function_searcher(QueryTreeNodeType::TABLE_FUNCTION, context);
         table_function_searcher.visit(query_info.query_tree);
@@ -485,6 +480,9 @@ QueryProcessingStage::Enum IStorageCluster::getQueryProcessingStage(
 
         // Can't use 'WHERE' on remote node if it contains columns from other sources
         if (!collector_where.getColumns().empty())
+            has_local_columns_in_where = true;
+
+        if (has_join || has_local_columns_in_where)
             return QueryProcessingStage::Enum::FetchColumns;
     }
 
