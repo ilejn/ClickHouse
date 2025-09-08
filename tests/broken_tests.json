@@ -3,6 +3,7 @@
         "reason": "INVESTIGATE - Sometimes out of memory with msan",
         "message": "DB::Exception: (total) memory limit exceeded",
         "check_types": [
+            "asan",
             "msan"
         ]
     },
@@ -25,8 +26,10 @@
     },
     "00988_expansion_aliases_limit": {
         "reason": "INVESTIGATE - Timeout. Unstable?",
+        "message": "Timeout",
         "check_types": [
-            "tsan"
+            "tsan",
+            "msan"
         ]
     },
     "03532_crash_in_aggregation_because_of_lost_exception": {
@@ -61,7 +64,21 @@
     },
     "02479_race_condition_between_insert_and_droppin_mv": {
         "reason": "INVESTIGATE - Timeout in ClickHouse query",
-        "message": "Timeout exceeded while receiving data from server.",
+        "message": "Timeout",
+        "check_types": [
+            "tsan"
+        ]
+    },
+    "03273_ghdata_json_to_json_alter": {
+        "reason": "INVESTIGATE - Timeout in ClickHouse query",
+        "message": "DB::Exception: Timeout exceeded",
+        "check_types": [
+            "tsan"
+        ]
+    },
+    "02389_analyzer_nested_lambda": {
+        "reason": "INVESTIGATE - Timeout in ClickHouse query",
+        "message": "DB::Exception: Timeout exceeded",
         "check_types": [
             "tsan"
         ]
@@ -164,10 +181,7 @@
     },
     "00024_random_counters": {
         "reason": "INVESTIGATE - timeout",
-        "message": "Timeout! Killing process group",
-        "check_types": [
-            "msan"
-        ]
+        "message": "Timeout! Killing process group"
     },
     "03127_system_unload_primary_key_table": {
         "reason": "INVESTIGATE - timeout",
@@ -306,6 +320,13 @@
             "tsan"
         ]
     },
+    "02967_parallel_replicas_join_algo_and_analyzer_1": {
+        "reason": "INVESTIGATE - Timeout. Unstable?",
+        "message": "Timeout! Killing process group",
+        "check_types": [
+            "tsan"
+        ]
+    },
     "02435_rollback_cancelled_queries": {
         "reason": "INVESTIGATE - Unstable?",
         "message": "There is no current transaction. (INVALID_TRANSACTION)",
@@ -364,6 +385,13 @@
         "reason": "INVESTIGATE - Unstable on tsan",
         "check_types": [
             "tsan"
+        ]
+    },
+    "test_s3_cache_locality/test.py::test_cache_locality[0]": {
+        "reason": "INVESTIGATE - Timeout on asan",
+        "message": "Failed: Timeout >900.0s",
+        "check_types": [
+            "asan"
         ]
     },
     "test_database_hms/test.py::test_list_tables": {
