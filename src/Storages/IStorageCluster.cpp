@@ -53,6 +53,7 @@ namespace Setting
 namespace ErrorCodes
 {
     extern const int NOT_IMPLEMENTED;
+    extern const int LOGICAL_ERROR;
 }
 
 IStorageCluster::IStorageCluster(
@@ -462,6 +463,10 @@ QueryProcessingStage::Enum IStorageCluster::getQueryProcessingStage(
 
     if (object_storage_cluster_join_mode != ObjectStorageClusterJoinMode::ALLOW)
     {
+        if (!context->getSettingsRef()[Setting::allow_experimental_analyzer])
+            throw Exception(ErrorCodes::NOT_IMPLEMENTED,
+                "object_storage_cluster_join_mode!='allow' is not supported without allow_experimental_analyzer=true");
+
         SearcherVisitor join_searcher(QueryTreeNodeType::JOIN, context);
         join_searcher.visit(query_info.query_tree);
         if (join_searcher.getNode())
