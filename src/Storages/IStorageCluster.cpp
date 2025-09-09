@@ -15,7 +15,6 @@
 #include <Interpreters/InterpreterSelectQueryAnalyzer.h>
 #include <Processors/Sources/NullSource.h>
 #include <Processors/Sources/RemoteSource.h>
-#include <Processors/QueryPlan/SourceStepWithFilter.h>
 #include <QueryPipeline/narrowPipe.h>
 #include <QueryPipeline/Pipe.h>
 #include <QueryPipeline/RemoteQueryExecutor.h>
@@ -40,6 +39,12 @@ namespace Setting
     extern const SettingsBool parallel_replicas_local_plan;
     extern const SettingsString cluster_for_parallel_replicas;
     extern const SettingsNonZeroUInt64 max_parallel_replicas;
+    extern const SettingsUInt64 object_storage_max_nodes;
+}
+
+namespace ErrorCodes
+{
+    extern const int NOT_IMPLEMENTED;
 }
 
 IStorageCluster::IStorageCluster(
@@ -51,51 +56,6 @@ IStorageCluster::IStorageCluster(
     , cluster_name(cluster_name_)
 {
 }
-
-class ReadFromCluster : public SourceStepWithFilter
-{
-public:
-    std::string getName() const override { return "ReadFromCluster"; }
-    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
-    void applyFilters(ActionDAGNodes added_filter_nodes) override;
-
-    ReadFromCluster(
-        const Names & column_names_,
-        const SelectQueryInfo & query_info_,
-        const StorageSnapshotPtr & storage_snapshot_,
-        const ContextPtr & context_,
-        Block sample_block,
-        std::shared_ptr<IStorageCluster> storage_,
-        ASTPtr query_to_send_,
-        QueryProcessingStage::Enum processed_stage_,
-        ClusterPtr cluster_,
-        LoggerPtr log_)
-        : SourceStepWithFilter(
-            std::move(sample_block),
-            column_names_,
-            query_info_,
-            storage_snapshot_,
-            context_)
-        , storage(std::move(storage_))
-        , query_to_send(std::move(query_to_send_))
-        , processed_stage(processed_stage_)
-        , cluster(std::move(cluster_))
-        , log(log_)
-    {
-    }
-
-private:
-    std::shared_ptr<IStorageCluster> storage;
-    ASTPtr query_to_send;
-    QueryProcessingStage::Enum processed_stage;
-    ClusterPtr cluster;
-    LoggerPtr log;
-
-    std::optional<RemoteQueryExecutor::Extension> extension;
-
-    void createExtension(const ActionsDAG::Node * predicate, size_t number_of_replicas);
-    ContextPtr updateSettings(const Settings & settings);
-};
 
 void ReadFromCluster::applyFilters(ActionDAGNodes added_filter_nodes)
 {
@@ -128,13 +88,21 @@ void IStorageCluster::read(
     SelectQueryInfo & query_info,
     ContextPtr context,
     QueryProcessingStage::Enum processed_stage,
-    size_t /*max_block_size*/,
-    size_t /*num_streams*/)
+    size_t max_block_size,
+    size_t num_streams)
 {
+    auto cluster_name_from_settings = getClusterName(context);
+
+    if (cluster_name_from_settings.empty())
+    {
+        readFallBackToPure(query_plan, column_names, storage_snapshot, query_info, context, processed_stage, max_block_size, num_streams);
+        return;
+    }
+
     storage_snapshot->check(column_names);
 
     updateBeforeRead(context);
-    auto cluster = getCluster(context);
+    auto cluster = getClusterImpl(context, cluster_name_from_settings, context->getSettingsRef()[Setting::object_storage_max_nodes]);
 
     /// Calculate the header. This is significant, because some columns could be thrown away in some cases like query with count(*)
 
@@ -179,6 +147,20 @@ void IStorageCluster::read(
         log);
 
     query_plan.addStep(std::move(reading));
+}
+
+SinkToStoragePtr IStorageCluster::write(
+    const ASTPtr & query,
+    const StorageMetadataPtr & metadata_snapshot,
+    ContextPtr context,
+    bool async_insert)
+{
+    auto cluster_name_from_settings = getClusterName(context);
+
+    if (cluster_name_from_settings.empty())
+        return writeFallBackToPure(query, metadata_snapshot, context, async_insert);
+
+    throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Method write is not supported by storage {}", getName());
 }
 
 void ReadFromCluster::initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
@@ -273,9 +255,9 @@ ContextPtr ReadFromCluster::updateSettings(const Settings & settings)
     return new_context;
 }
 
-ClusterPtr IStorageCluster::getCluster(ContextPtr context) const
+ClusterPtr IStorageCluster::getClusterImpl(ContextPtr context, const String & cluster_name_, size_t max_hosts)
 {
-    return context->getCluster(cluster_name)->getClusterWithReplicasAsShards(context->getSettingsRef());
+    return context->getCluster(cluster_name_)->getClusterWithReplicasAsShards(context->getSettingsRef(), /* max_replicas_from_shard */ 0, max_hosts);
 }
 
 }
