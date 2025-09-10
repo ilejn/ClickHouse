@@ -9,7 +9,8 @@ struct MergeTreeExportManifest
     using DataPartPtr = std::shared_ptr<const IMergeTreeDataPart>;
 
     StorageID destination_storage_id;
-    mutable DataPartPtr data_part;
+    DataPartPtr data_part;
+    time_t create_time = time(nullptr);
     mutable bool in_progress = false;
 
     bool operator<(const MergeTreeExportManifest & rhs) const 

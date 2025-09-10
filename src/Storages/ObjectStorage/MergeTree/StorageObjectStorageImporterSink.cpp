@@ -56,7 +56,6 @@ void StorageObjectStorageImporterSink::onFinish()
 
 void StorageObjectStorageImporterSink::onException(std::exception_ptr exception)
 {
-    /// todo arthur fix this
     sink->onException(exception);
 
     stats.status = ExecutionStatus(-1, "Error importing part");

@@ -201,7 +201,7 @@ void StorageMergeTree::startup()
     try
     {
         background_operations_assignee.start();
-        startBackgroundMovesIfNeeded();
+        startBackgroundMoves();
         startOutdatedAndUnexpectedDataPartsLoadingTask();
     }
     catch (...)
@@ -2689,12 +2689,6 @@ MutationCounters StorageMergeTree::getMutationCounters() const
 {
     std::lock_guard lock(currently_processing_in_background_mutex);
     return mutation_counters;
-}
-
-void StorageMergeTree::startBackgroundMovesIfNeeded()
-{
-    // if (areBackgroundMovesNeeded())
-    background_moves_assignee.start();
 }
 
 std::unique_ptr<MergeTreeSettings> StorageMergeTree::getDefaultSettings() const

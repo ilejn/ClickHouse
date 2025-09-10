@@ -1,7 +1,6 @@
 #include <Core/ColumnWithTypeAndName.h>
 #include <Storages/ObjectStorage/StorageObjectStorage.h>
 #include <Storages/MergeTree/MergeTreePartInfo.h>
-#include <filesystem>
 
 #include <Common/logger_useful.h>
 #include <Core/Settings.h>

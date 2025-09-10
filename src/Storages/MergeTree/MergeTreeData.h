@@ -972,7 +972,7 @@ public:
         bool must_on_same_disk);
 
     virtual std::vector<MergeTreeMutationStatus> getMutationsStatus() const = 0;
-    virtual std::vector<MergeTreeExportStatus> getExportsStatus() const { return {}; }
+    std::vector<MergeTreeExportStatus> getExportsStatus() const;
 
     /// Returns true if table can create new parts with adaptive granularity
     /// Has additional constraint in replicated version
@@ -1162,7 +1162,7 @@ public:
     /// Schedules background job to like merge/mutate/fetch an executor
     virtual bool scheduleDataProcessingJob(BackgroundJobsAssignee & assignee) = 0;
     /// Schedules job to move parts between disks/volumes and so on.
-    virtual bool scheduleDataMovingJob(BackgroundJobsAssignee & assignee);
+    bool scheduleDataMovingJob(BackgroundJobsAssignee & assignee);
     bool areBackgroundMovesNeeded() const;
 
 
@@ -1712,7 +1712,7 @@ private:
 
     bool canUsePolymorphicParts(const MergeTreeSettings & settings, String & out_reason) const;
 
-    virtual void startBackgroundMovesIfNeeded() = 0;
+    void startBackgroundMoves();
 
     bool allow_nullable_key = false;
     bool allow_reverse_key = false;
