@@ -601,7 +601,7 @@ SinkToStoragePtr StorageObjectStorageCluster::import(
     if (pure_storage)
         return pure_storage->import(file_name, block_with_partition_values, context, part_log);
     
-    throw Exception(ErrorCodes::LOGICAL_ERROR, "Something is off, bug");
+    return IStorageCluster::import(file_name, block_with_partition_values, context, part_log);
 }
 
 
