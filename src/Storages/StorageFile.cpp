@@ -1968,7 +1968,7 @@ public:
     SinkPtr createSinkForPartition(const String & partition_id) override
     {
         const auto file_path_generator = std::make_shared<ObjectStorageWildcardFilePathGenerator>(path);
-        std::string filepath = file_path_generator->getWritingPath(partition_id, "");
+        std::string filepath = file_path_generator->getPathForWrite(partition_id);
 
         fs::create_directories(fs::path(filepath).parent_path());
 

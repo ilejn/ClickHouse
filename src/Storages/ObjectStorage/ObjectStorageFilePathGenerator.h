@@ -10,20 +10,24 @@ namespace DB
     struct ObjectStorageFilePathGenerator
     {
         virtual ~ObjectStorageFilePathGenerator() = default;
-        virtual std::string getWritingPath(const std::string & partition_id, const std::string & /* file_name_override */) const = 0;
-        virtual std::string getReadingPath() const = 0;
+        std::string getPathForWrite(const std::string & partition_id) const { 
+            return getPathForWrite(partition_id, "");
+        }
+        virtual std::string getPathForWrite(const std::string & partition_id, const std::string & /* file_name_override */) const = 0;
+        virtual std::string getPathForRead() const = 0;
     };
 
     struct ObjectStorageWildcardFilePathGenerator : ObjectStorageFilePathGenerator
     {
         explicit ObjectStorageWildcardFilePathGenerator(const std::string & raw_path_) : raw_path(raw_path_) {}
 
-        std::string getWritingPath(const std::string & partition_id, const std::string & /* file_name_override */) const override
+        using ObjectStorageFilePathGenerator::getPathForWrite;  // Bring base class overloads into scope
+        std::string getPathForWrite(const std::string & partition_id, const std::string & /* file_name_override */) const override
         {
             return PartitionedSink::replaceWildcards(raw_path, partition_id);
         }
 
-        std::string getReadingPath() const override
+        std::string getPathForRead() const override
         {
             return raw_path;
         }
@@ -40,13 +44,14 @@ namespace DB
             const std::string & file_format_)
         : raw_path(raw_path_), file_format(Poco::toLower(file_format_)){}
 
-        std::string getWritingPath(const std::string & partition_id, const std::string & file_name_override) const override
+        using ObjectStorageFilePathGenerator::getPathForWrite;  // Bring base class overloads into scope
+        std::string getPathForWrite(const std::string & partition_id, const std::string & file_name_override) const override
         {
             const auto file_name = file_name_override.empty() ? std::to_string(generateSnowflakeID()) : file_name_override;
             return raw_path + "/" + partition_id + "/"  + file_name + "." + file_format;
         }
 
-        std::string getReadingPath() const override
+        std::string getPathForRead() const override
         {
             return raw_path + "**." + file_format;
         }

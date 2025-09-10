@@ -426,7 +426,7 @@ SinkToStoragePtr StorageObjectStorage::write(
 
     if (configuration->getPartitionStrategy())
     {
-        auto sink_creator = std::make_shared<PartitionedStorageObjectStorageSink>(object_storage, configuration, configuration->file_path_generator, format_settings, sample_block, local_context);
+        auto sink_creator = std::make_shared<PartitionedStorageObjectStorageSink>(object_storage, configuration, format_settings, sample_block, local_context);
         return std::make_shared<PartitionedSink>(configuration->partition_strategy, sink_creator, local_context, sample_block);
     }
 
@@ -469,7 +469,7 @@ SinkToStoragePtr StorageObjectStorage::import(
         }
     }
 
-    const auto file_path = configuration->file_path_generator->getWritingPath(partition_key, file_name);
+    const auto file_path = configuration->getPathForWrite(partition_key, file_name).path;
 
     if (object_storage->exists(StoredObject(file_path)))
     {
@@ -676,8 +676,7 @@ void StorageObjectStorage::Configuration::initialize(
     else
         FormatFactory::instance().checkFormatName(format);
 
-    /// It might be changed on `StorageObjectStorage::Configuration::initPartitionStrategy`
-    read_path = getRawPath();
+    read_path = file_path_generator->getPathForRead();
     initialized = true;
 }
 
@@ -695,7 +694,6 @@ void StorageObjectStorage::Configuration::initPartitionStrategy(ASTPtr partition
 
     if (partition_strategy)
     {
-        read_path = partition_strategy->getPathForRead(getRawPath().path);
         LOG_DEBUG(getLogger("StorageObjectStorageConfiguration"), "Initialized partition strategy {}", magic_enum::enum_name(partition_strategy_type));
     }
 }
@@ -707,16 +705,13 @@ const StorageObjectStorage::Configuration::Path & StorageObjectStorage::Configur
 
 StorageObjectStorage::Configuration::Path StorageObjectStorage::Configuration::getPathForWrite(const std::string & partition_id) const
 {
-    auto raw_path = getRawPath();
-
-    if (!partition_strategy)
-    {
-        return raw_path;
-    }
-
-    return Path {partition_strategy->getPathForWrite(raw_path.path, partition_id)};
+    return getPathForWrite(partition_id, /* filename_override */ "");
 }
 
+StorageObjectStorage::Configuration::Path StorageObjectStorage::Configuration::getPathForWrite(const std::string & partition_id, const std::string & filename_override) const
+{
+    return Path {file_path_generator->getPathForWrite(partition_id, filename_override)};
+}
 
 bool StorageObjectStorage::Configuration::Path::hasPartitionWildcard() const
 {

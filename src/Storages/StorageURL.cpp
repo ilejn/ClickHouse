@@ -754,7 +754,7 @@ public:
     SinkPtr createSinkForPartition(const String & partition_id) override
     {
         const auto file_path_generator = std::make_shared<ObjectStorageWildcardFilePathGenerator>(uri);
-        std::string partition_path = file_path_generator->getWritingPath(partition_id, /* filename_override */ "");
+        std::string partition_path = file_path_generator->getPathForWrite(partition_id);
 
         context->getRemoteHostFilter().checkURL(Poco::URI(partition_path));
         return std::make_shared<StorageURLSink>(
