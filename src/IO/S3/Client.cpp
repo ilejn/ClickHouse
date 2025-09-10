@@ -1,8 +1,12 @@
 #include <IO/S3/Client.h>
-#include <Common/CurrentThread.h>
-#include <Common/Exception.h>
 
 #if USE_AWS_S3
+
+#include <algorithm>
+#include <aws/core/utils/crypto/Hash.h>
+#include <Poco/MD5Engine.h>
+#include <Common/CurrentThread.h>
+#include <Common/Exception.h>
 
 #include <aws/core/Aws.h>
 #include <aws/core/client/CoreErrors.h>
@@ -31,6 +35,7 @@
 #include <Core/Settings.h>
 
 #include <base/sleep.h>
+
 
 
 namespace ProfileEvents
@@ -379,7 +384,7 @@ Model::HeadObjectOutcome Client::HeadObject(HeadObjectRequest & request) const
     auto bucket_uri = getURIForBucket(bucket);
     if (!bucket_uri)
     {
-        if (auto maybe_error = updateURIForBucketForHead(bucket); maybe_error.has_value())
+        if (auto maybe_error = updateURIForBucketForHead(bucket, request.GetKey()); maybe_error.has_value())
             return *maybe_error;
 
         if (auto region = getRegionForBucket(bucket); !region.empty())
@@ -583,7 +588,6 @@ Client::doRequest(RequestType & request, RequestFn request_fn) const
 
     if (auto uri = getURIForBucket(bucket); uri.has_value())
         request.overrideURI(std::move(*uri));
-
 
     bool found_new_endpoint = false;
     // if we found correct endpoint after 301 responses, update the cache for future requests
@@ -864,12 +868,15 @@ std::optional<S3::URI> Client::getURIFromError(const Aws::S3::S3Error & error) c
 }
 
 // Do a list request because head requests don't have body in response
-std::optional<Aws::S3::S3Error> Client::updateURIForBucketForHead(const std::string & bucket) const
+// S3 Tables don't support ListObjects, so made dirty workaroung - changed on GetObject
+std::optional<Aws::S3::S3Error> Client::updateURIForBucketForHead(const std::string & bucket, const std::string & key) const
 {
-    ListObjectsV2Request req;
+    GetObjectRequest req;
     req.SetBucket(bucket);
-    req.SetMaxKeys(1);
-    auto result = ListObjectsV2(req);
+    req.SetKey(key);
+    req.SetRange("bytes=0-1");
+    auto result = GetObject(req);
+
     if (result.IsSuccess())
         return std::nullopt;
     return result.GetError();
@@ -1029,10 +1036,21 @@ std::unique_ptr<S3::Client> ClientFactory::create( // NOLINT
     client_configuration.extra_headers = std::move(headers);
 
     Aws::Auth::AWSCredentials credentials(access_key_id, secret_access_key, session_token);
-    auto credentials_provider = std::make_shared<S3CredentialsProviderChain>(
+
+    // we need to force environment credentials if explicit credentials are empty and we have role_arn
+    // this is a crutch because we know that we have environment credentials on our Cloud
+    credentials_configuration.use_environment_credentials =
+        credentials_configuration.use_environment_credentials || (credentials.IsEmpty() && !credentials_configuration.role_arn.empty());
+
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> credentials_provider = std::make_shared<S3CredentialsProviderChain>(
             client_configuration,
             std::move(credentials),
             credentials_configuration);
+
+    if (!credentials_configuration.role_arn.empty())
+        credentials_provider = std::make_shared<AwsAuthSTSAssumeRoleCredentialsProvider>(credentials_configuration.role_arn,
+            credentials_configuration.role_session_name, credentials_configuration.expiration_window_seconds,
+            std::move(credentials_provider), client_configuration, credentials_configuration.sts_endpoint_override);
 
     client_configuration.retryStrategy = std::make_shared<Client::RetryStrategy>(client_configuration.s3_retry_attempts);
 

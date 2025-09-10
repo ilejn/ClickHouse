@@ -6821,13 +6821,13 @@ Allow to create database with Engine=MaterializedPostgreSQL(...).
     DECLARE(Bool, allow_experimental_query_deduplication, false, R"(
 Experimental data deduplication for SELECT queries based on part UUIDs
 )", EXPERIMENTAL) \
-    DECLARE(Bool, allow_experimental_database_iceberg, false, R"(
+    DECLARE(Bool, allow_experimental_database_iceberg, true, R"(
 Allow experimental database engine DataLakeCatalog with catalog_type = 'iceberg'
 )", EXPERIMENTAL) \
-    DECLARE(Bool, allow_experimental_database_unity_catalog, false, R"(
+    DECLARE(Bool, allow_experimental_database_unity_catalog, true, R"(
 Allow experimental database engine DataLakeCatalog with catalog_type = 'unity'
 )", EXPERIMENTAL) \
-    DECLARE(Bool, allow_experimental_database_glue_catalog, false, R"(
+    DECLARE(Bool, allow_experimental_database_glue_catalog, true, R"(
 Allow experimental database engine DataLakeCatalog with catalog_type = 'glue'
 )", EXPERIMENTAL) \
     DECLARE(Bool, allow_experimental_database_hms_catalog, false, R"(
@@ -6841,6 +6841,15 @@ Enable PRQL - an alternative to SQL.
 )", EXPERIMENTAL) \
     DECLARE(Bool, enable_adaptive_memory_spill_scheduler, false, R"(
 Trigger processor to spill data into external storage adpatively. grace join is supported at present.
+)", EXPERIMENTAL) \
+    DECLARE(String, object_storage_cluster, "", R"(
+Cluster to make distributed requests to object storages with alternative syntax.
+)", EXPERIMENTAL) \
+    DECLARE(UInt64, object_storage_max_nodes, 0, R"(
+Limit for hosts used for request in object storage cluster table functions - azureBlobStorageCluster, s3Cluster, hdfsCluster, etc.
+Possible values:
+- Positive integer.
+- 0 — All hosts in cluster.
 )", EXPERIMENTAL) \
     DECLARE(Bool, allow_experimental_delta_kernel_rs, true, R"(
 Allow experimental delta-kernel-rs implementation.
@@ -6857,9 +6866,15 @@ Default number of buckets for distributed shuffle-hash-join.
     DECLARE(UInt64, distributed_plan_default_reader_bucket_count, 8, R"(
 Default number of tasks for parallel reading in distributed query. Tasks are spread across between replicas.
 )", EXPERIMENTAL) \
+    DECLARE(Bool, use_object_storage_list_objects_cache, false, R"(
+Cache the list of objects returned by list objects calls in object storage
+)", EXPERIMENTAL) \
     DECLARE(Bool, distributed_plan_optimize_exchanges, true, R"(
 Removes unnecessary exchanges in distributed query plan. Disable it for debugging.
 )", 0) \
+    DECLARE(UInt64, lock_object_storage_task_distribution_ms, 0, R"(
+In object storage distribution queries do not distibute tasks on non-prefetched nodes until prefetched node is active.
+)", EXPERIMENTAL) \
     DECLARE(String, distributed_plan_force_exchange_kind, "", R"(
 Force specified kind of Exchange operators between distributed query stages.
 
@@ -6869,12 +6884,16 @@ Possible values:
  - 'Persisted' - use temporary files in object storage,
  - 'Streaming' - stream exchange data over network.
 )", EXPERIMENTAL) \
+    DECLARE(Bool, object_storage_remote_initiator, false, R"(
+Execute request to object storage as remote on one of object_storage_cluster nodes.
+)", EXPERIMENTAL) \
     \
     /** Experimental timeSeries* aggregate functions. */ \
     DECLARE_WITH_ALIAS(Bool, allow_experimental_time_series_aggregate_functions, false, R"(
 Experimental timeSeries* aggregate functions for Prometheus-like timeseries resampling, rate, delta calculation.
 )", EXPERIMENTAL, allow_experimental_ts_to_grid_aggregate_function) \
     \
+
     /* ####################################################### */ \
     /* ############ END OF EXPERIMENTAL FEATURES ############# */ \
     /* ####################################################### */ \

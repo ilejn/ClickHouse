@@ -11,6 +11,7 @@
 
 #include <Processors/Sources/NullSource.h>
 #include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/ReadFromObjectStorageStep.h>
 #include <Processors/Formats/IOutputFormat.h>
 #include <Processors/QueryPlan/SourceStepWithFilter.h>
 #include <Processors/Executors/PullingPipelineExecutor.h>
@@ -60,6 +61,11 @@ String StorageObjectStorage::getPathSample(ContextPtr context)
     if (context->getSettingsRef()[Setting::use_hive_partitioning])
         local_distributed_processing = false;
 
+    const auto path = configuration->getRawPath();
+
+    if (!configuration->isArchive() && !path.hasGlobs() && !local_distributed_processing)
+        return path.path;
+
     auto file_iterator = StorageObjectStorageSource::createFileIterator(
         configuration,
         query_settings,
@@ -73,11 +79,6 @@ String StorageObjectStorage::getPathSample(ContextPtr context)
         nullptr, // read_keys
         {} // file_progress_callback
     );
-
-    const auto path = configuration->getRawPath();
-
-    if (!configuration->isArchive() && !path.hasGlobs() && !local_distributed_processing)
-        return path.path;
 
     if (auto file = file_iterator->next(0))
         return file->getPath();
@@ -97,7 +98,8 @@ StorageObjectStorage::StorageObjectStorage(
     bool distributed_processing_,
     ASTPtr partition_by_,
     bool is_table_function,
-    bool lazy_init)
+    bool lazy_init,
+    std::optional<std::string> sample_path_)
     : IStorage(table_id_)
     , configuration(configuration_)
     , object_storage(object_storage_)
@@ -107,9 +109,9 @@ StorageObjectStorage::StorageObjectStorage(
 {
     configuration->initPartitionStrategy(partition_by_, columns_in_table_or_function_definition, context);
 
-    const bool need_resolve_columns_or_format = columns_in_table_or_function_definition.empty() || (configuration->format == "auto");
+    const bool need_resolve_columns_or_format = columns_in_table_or_function_definition.empty() || (configuration->getFormat() == "auto");
     const bool need_resolve_sample_path = context->getSettingsRef()[Setting::use_hive_partitioning]
-        && !configuration->partition_strategy
+        && !configuration->getPartitionStrategy()
         && !configuration->isDataLakeConfiguration();
     const bool do_lazy_init = lazy_init && !need_resolve_columns_or_format && !need_resolve_sample_path;
 
@@ -144,11 +146,11 @@ StorageObjectStorage::StorageObjectStorage(
     /// (e.g. read always follows constructor immediately).
     update_configuration_on_read_write = !is_table_function || !updated_configuration;
 
-    std::string sample_path;
+    std::string sample_path = sample_path_.value_or("");
 
     ColumnsDescription columns{columns_in_table_or_function_definition};
     if (need_resolve_columns_or_format)
-        resolveSchemaAndFormat(columns, configuration->format, object_storage, configuration, format_settings, sample_path, context);
+        resolveSchemaAndFormat(columns, object_storage, configuration, format_settings, sample_path, context);
     else
         validateSupportedColumns(columns, *configuration);
 
@@ -156,7 +158,7 @@ StorageObjectStorage::StorageObjectStorage(
 
     /// FIXME: We need to call getPathSample() lazily on select
     /// in case it failed to be initialized in constructor.
-    if (updated_configuration && sample_path.empty() && need_resolve_sample_path && !configuration->partition_strategy)
+    if (updated_configuration && sample_path.empty() && need_resolve_sample_path && !configuration->getPartitionStrategy())
     {
         try
         {
@@ -172,56 +174,13 @@ StorageObjectStorage::StorageObjectStorage(
         }
     }
 
-    /*
-     * If `partition_strategy=hive`, the partition columns shall be extracted from the `PARTITION BY` expression.
-     * There is no need to read from the file's path.
-     *
-     * Otherwise, in case `use_hive_partitioning=1`, we can keep the old behavior of extracting it from the sample path.
-     * And if the schema was inferred (not specified in the table definition), we need to enrich it with the path partition columns
-     */
-    if (configuration->partition_strategy && configuration->partition_strategy_type == PartitionStrategyFactory::StrategyType::HIVE)
-    {
-        hive_partition_columns_to_read_from_file_path = configuration->partition_strategy->getPartitionColumns();
-    }
-    else if (context->getSettingsRef()[Setting::use_hive_partitioning])
-    {
-        HivePartitioningUtils::extractPartitionColumnsFromPathAndEnrichStorageColumns(
-           columns,
-           hive_partition_columns_to_read_from_file_path,
-           sample_path,
-           columns_in_table_or_function_definition.empty(),
-           format_settings,
-           context);
-    }
-
-    if (hive_partition_columns_to_read_from_file_path.size() == columns.size())
-    {
-        throw Exception(
-            ErrorCodes::INCORRECT_DATA,
-            "A hive partitioned file can't contain only partition columns. Try reading it with `partition_strategy=wildcard` and `use_hive_partitioning=0`");
-    }
-
-    if (configuration->partition_columns_in_data_file)
-    {
-        file_columns = columns;
-    }
-    else
-    {
-        std::unordered_set<String> hive_partition_columns_to_read_from_file_path_set;
-
-        for (const auto & [name, type] : hive_partition_columns_to_read_from_file_path)
-        {
-            hive_partition_columns_to_read_from_file_path_set.insert(name);
-        }
-
-        for (const auto & [name, type] : columns.getAllPhysical())
-        {
-            if (!hive_partition_columns_to_read_from_file_path_set.contains(name))
-            {
-                file_columns.add({name, type});
-            }
-        }
-    }
+    std::tie(hive_partition_columns_to_read_from_file_path, file_columns) = HivePartitioningUtils::setupHivePartitioningForObjectStorage(
+        columns,
+        configuration,
+        sample_path,
+        columns_in_table_or_function_definition.empty(),
+        format_settings,
+        context);
 
     // Assert file contains at least one column. The assertion only takes place if we were able to deduce the schema. The storage might be empty.
     if (!columns.empty() && file_columns.empty())
@@ -237,9 +196,9 @@ StorageObjectStorage::StorageObjectStorage(
     metadata.setComment(comment);
 
     /// I am not sure this is actually required, but just in case
-    if (configuration->partition_strategy)
+    if (configuration->getPartitionStrategy())
     {
-        metadata.partition_key = configuration->partition_strategy->getPartitionKeyDescription();
+        metadata.partition_key = configuration->getPartitionStrategy()->getPartitionKeyDescription();
     }
 
     setVirtuals(VirtualColumnUtils::getVirtualsForFileLikeStorage(metadata.columns));
@@ -253,17 +212,17 @@ String StorageObjectStorage::getName() const
 
 bool StorageObjectStorage::prefersLargeBlocks() const
 {
-    return FormatFactory::instance().checkIfOutputFormatPrefersLargeBlocks(configuration->format);
+    return FormatFactory::instance().checkIfOutputFormatPrefersLargeBlocks(configuration->getFormat());
 }
 
 bool StorageObjectStorage::parallelizeOutputAfterReading(ContextPtr context) const
 {
-    return FormatFactory::instance().checkParallelizeOutputAfterReading(configuration->format, context);
+    return FormatFactory::instance().checkParallelizeOutputAfterReading(configuration->getFormat(), context);
 }
 
 bool StorageObjectStorage::supportsSubsetOfColumns(const ContextPtr & context) const
 {
-    return FormatFactory::instance().checkIfFormatSupportsSubsetOfColumns(configuration->format, context, format_settings);
+    return FormatFactory::instance().checkIfFormatSupportsSubsetOfColumns(configuration->getFormat(), context, format_settings);
 }
 
 bool StorageObjectStorage::Configuration::update( ///NOLINT
@@ -341,121 +300,6 @@ std::optional<UInt64> StorageObjectStorage::totalBytes(ContextPtr query_context)
     return configuration->totalBytes(query_context);
 }
 
-namespace
-{
-class ReadFromObjectStorageStep : public SourceStepWithFilter
-{
-public:
-    using ConfigurationPtr = StorageObjectStorage::ConfigurationPtr;
-
-    ReadFromObjectStorageStep(
-        ObjectStoragePtr object_storage_,
-        ConfigurationPtr configuration_,
-        const String & name_,
-        const Names & columns_to_read,
-        const NamesAndTypesList & virtual_columns_,
-        const SelectQueryInfo & query_info_,
-        const StorageSnapshotPtr & storage_snapshot_,
-        const std::optional<DB::FormatSettings> & format_settings_,
-        bool distributed_processing_,
-        ReadFromFormatInfo info_,
-        const bool need_only_count_,
-        ContextPtr context_,
-        size_t max_block_size_,
-        size_t num_streams_)
-        : SourceStepWithFilter(info_.source_header, columns_to_read, query_info_, storage_snapshot_, context_)
-        , object_storage(object_storage_)
-        , configuration(configuration_)
-        , info(std::move(info_))
-        , virtual_columns(virtual_columns_)
-        , format_settings(format_settings_)
-        , name(name_ + "Source")
-        , need_only_count(need_only_count_)
-        , max_block_size(max_block_size_)
-        , num_streams(num_streams_)
-        , distributed_processing(distributed_processing_)
-    {
-    }
-
-    std::string getName() const override { return name; }
-
-    void applyFilters(ActionDAGNodes added_filter_nodes) override
-    {
-        SourceStepWithFilter::applyFilters(std::move(added_filter_nodes));
-        createIterator();
-    }
-
-    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override
-    {
-        createIterator();
-
-        Pipes pipes;
-        auto context = getContext();
-        const size_t max_threads = context->getSettingsRef()[Setting::max_threads];
-        size_t estimated_keys_count = iterator_wrapper->estimatedKeysCount();
-
-        if (estimated_keys_count > 1)
-            num_streams = std::min(num_streams, estimated_keys_count);
-        else
-        {
-            /// The amount of keys (zero) was probably underestimated.
-            /// We will keep one stream for this particular case.
-            num_streams = 1;
-        }
-
-        const size_t max_parsing_threads = num_streams >= max_threads ? 1 : (max_threads / std::max(num_streams, 1ul));
-
-        for (size_t i = 0; i < num_streams; ++i)
-        {
-            auto source = std::make_shared<StorageObjectStorageSource>(
-                getName(), object_storage, configuration, info, format_settings,
-                context, max_block_size, iterator_wrapper, max_parsing_threads, need_only_count);
-
-            source->setKeyCondition(filter_actions_dag, context);
-            pipes.emplace_back(std::move(source));
-        }
-
-        auto pipe = Pipe::unitePipes(std::move(pipes));
-        if (pipe.empty())
-            pipe = Pipe(std::make_shared<NullSource>(info.source_header));
-
-        for (const auto & processor : pipe.getProcessors())
-            processors.emplace_back(processor);
-
-        pipeline.init(std::move(pipe));
-    }
-
-private:
-    ObjectStoragePtr object_storage;
-    ConfigurationPtr configuration;
-    std::shared_ptr<IObjectIterator> iterator_wrapper;
-
-    const ReadFromFormatInfo info;
-    const NamesAndTypesList virtual_columns;
-    const std::optional<DB::FormatSettings> format_settings;
-    const String name;
-    const bool need_only_count;
-    const size_t max_block_size;
-    size_t num_streams;
-    const bool distributed_processing;
-
-    void createIterator()
-    {
-        if (iterator_wrapper)
-            return;
-
-        const ActionsDAG::Node * predicate = nullptr;
-        if (filter_actions_dag.has_value())
-            predicate = filter_actions_dag->getOutputs().at(0);
-
-        auto context = getContext();
-        iterator_wrapper = StorageObjectStorageSource::createFileIterator(
-            configuration, configuration->getQuerySettings(context), object_storage, distributed_processing,
-            context, predicate, filter_actions_dag, virtual_columns, info.hive_partition_columns_to_read_from_file_path, nullptr, context->getFileProgressCallback());
-    }
-};
-}
-
 ReadFromFormatInfo StorageObjectStorage::Configuration::prepareReadingFromFormat(
     ObjectStoragePtr,
     const Strings & requested_columns,
@@ -470,6 +314,11 @@ ReadFromFormatInfo StorageObjectStorage::Configuration::prepareReadingFromFormat
 std::optional<ColumnsDescription> StorageObjectStorage::Configuration::tryGetTableStructureFromMetadata() const
 {
     throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Method tryGetTableStructureFromMetadata is not implemented for basic configuration");
+}
+
+std::optional<String> StorageObjectStorage::Configuration::tryGetSamplePathFromMetadata() const
+{
+    throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Method tryGetSamplePathFromMetadata is not implemented for basic configuration");
 }
 
 void StorageObjectStorage::read(
@@ -493,14 +342,12 @@ void StorageObjectStorage::read(
             /* check_consistent_with_previous_metadata */true);
     }
 
-    if (configuration->partition_strategy && configuration->partition_strategy_type != PartitionStrategyFactory::StrategyType::HIVE)
+    if (configuration->getPartitionStrategy() && configuration->getPartitionStrategyType() != PartitionStrategyFactory::StrategyType::HIVE)
     {
         throw Exception(ErrorCodes::NOT_IMPLEMENTED,
                         "Reading from a partitioned {} storage is not implemented yet",
                         getName());
     }
-
-    auto all_file_columns = file_columns.getAll();
 
     auto read_from_format_info = configuration->prepareReadingFromFormat(
         object_storage,
@@ -508,7 +355,7 @@ void StorageObjectStorage::read(
         storage_snapshot,
         supportsSubsetOfColumns(local_context),
         local_context,
-        PrepareReadingFromFormatHiveParams { all_file_columns, hive_partition_columns_to_read_from_file_path.getNameToTypeMap() });
+        PrepareReadingFromFormatHiveParams { file_columns, hive_partition_columns_to_read_from_file_path.getNameToTypeMap() });
 
     const bool need_only_count = (query_info.optimize_trivial_count || read_from_format_info.requested_columns.empty())
                                  && local_context->getSettingsRef()[Setting::optimize_count_from_files];
@@ -575,7 +422,7 @@ SinkToStoragePtr StorageObjectStorage::write(
     if (!configuration->supportsWrites())
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Writes are not supported for engine");
 
-    if (configuration->partition_strategy)
+    if (configuration->getPartitionStrategy())
     {
         return std::make_shared<PartitionedStorageObjectStorageSink>(object_storage, configuration, format_settings, sample_block, local_context);
     }
@@ -659,7 +506,7 @@ ColumnsDescription StorageObjectStorage::resolveSchemaFromData(
 {
     ObjectInfos read_keys;
     auto iterator = createReadBufferIterator(object_storage, configuration, format_settings, read_keys, context);
-    auto schema = readSchemaFromFormat(configuration->format, format_settings, *iterator, context);
+    auto schema = readSchemaFromFormat(configuration->getFormat(), format_settings, *iterator, context);
     sample_path = iterator->getLastFilePath();
     return schema;
 }
@@ -680,7 +527,7 @@ std::string StorageObjectStorage::resolveFormatFromData(
 
 std::pair<ColumnsDescription, std::string> StorageObjectStorage::resolveSchemaAndFormatFromData(
     const ObjectStoragePtr & object_storage,
-    const ConfigurationPtr & configuration,
+    ConfigurationPtr & configuration,
     const std::optional<FormatSettings> & format_settings,
     std::string & sample_path,
     const ContextPtr & context)
@@ -689,13 +536,13 @@ std::pair<ColumnsDescription, std::string> StorageObjectStorage::resolveSchemaAn
     auto iterator = createReadBufferIterator(object_storage, configuration, format_settings, read_keys, context);
     auto [columns, format] = detectFormatAndReadSchema(format_settings, *iterator, context);
     sample_path = iterator->getLastFilePath();
-    configuration->format = format;
+    configuration->setFormat(format);
     return std::pair(columns, format);
 }
 
 void StorageObjectStorage::addInferredEngineArgsToCreateQuery(ASTs & args, const ContextPtr & context) const
 {
-    configuration->addStructureAndFormatToArgsIfNeeded(args, "", configuration->format, context, /*with_structure=*/false);
+    configuration->addStructureAndFormatToArgsIfNeeded(args, "", configuration->getFormat(), context, /*with_structure=*/false);
 }
 
 SchemaCache & StorageObjectStorage::getSchemaCache(const ContextPtr & context, const std::string & storage_type_name)
@@ -730,54 +577,52 @@ SchemaCache & StorageObjectStorage::getSchemaCache(const ContextPtr & context, c
 }
 
 void StorageObjectStorage::Configuration::initialize(
-    Configuration & configuration_to_initialize,
     ASTs & engine_args,
     ContextPtr local_context,
     bool with_table_structure)
 {
     if (auto named_collection = tryGetNamedCollectionWithOverrides(engine_args, local_context))
-        configuration_to_initialize.fromNamedCollection(*named_collection, local_context);
+        fromNamedCollection(*named_collection, local_context);
     else
-        configuration_to_initialize.fromAST(engine_args, local_context, with_table_structure);
+        fromAST(engine_args, local_context, with_table_structure);
 
-    if (configuration_to_initialize.isNamespaceWithGlobs())
+    if (isNamespaceWithGlobs())
         throw Exception(ErrorCodes::BAD_ARGUMENTS,
-                        "Expression can not have wildcards inside {} name", configuration_to_initialize.getNamespaceType());
+                        "Expression can not have wildcards inside {} name", getNamespaceType());
 
-    if (configuration_to_initialize.isDataLakeConfiguration())
+    if (isDataLakeConfiguration())
     {
-        if (configuration_to_initialize.partition_strategy_type != PartitionStrategyFactory::StrategyType::NONE)
+        if (getPartitionStrategyType() != PartitionStrategyFactory::StrategyType::NONE)
         {
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "The `partition_strategy` argument is incompatible with data lakes");
         }
     }
-    else if (configuration_to_initialize.partition_strategy_type == PartitionStrategyFactory::StrategyType::NONE)
+    else if (getPartitionStrategyType() == PartitionStrategyFactory::StrategyType::NONE)
     {
         // Promote to wildcard in case it is not data lake to make it backwards compatible
-        configuration_to_initialize.partition_strategy_type = PartitionStrategyFactory::StrategyType::WILDCARD;
+        setPartitionStrategyType(PartitionStrategyFactory::StrategyType::WILDCARD);
     }
 
-    if (configuration_to_initialize.format == "auto")
+    if (format == "auto")
     {
-        if (configuration_to_initialize.isDataLakeConfiguration())
+        if (isDataLakeConfiguration())
         {
-            configuration_to_initialize.format = "Parquet";
+            format = "Parquet";
         }
         else
         {
-            configuration_to_initialize.format
+            format
                 = FormatFactory::instance()
-                      .tryGetFormatFromFileName(configuration_to_initialize.isArchive() ? configuration_to_initialize.getPathInArchive() : configuration_to_initialize.getRawPath().path)
+                      .tryGetFormatFromFileName(isArchive() ? getPathInArchive() : getRawPath().path)
                       .value_or("auto");
         }
     }
     else
-        FormatFactory::instance().checkFormatName(configuration_to_initialize.format);
+        FormatFactory::instance().checkFormatName(format);
 
     /// It might be changed on `StorageObjectStorage::Configuration::initPartitionStrategy`
-    configuration_to_initialize.read_path = configuration_to_initialize.getRawPath();
-    configuration_to_initialize.initialized = true;
-
+    read_path = getRawPath();
+    initialized = true;
 }
 
 void StorageObjectStorage::Configuration::initPartitionStrategy(ASTPtr partition_by, const ColumnsDescription & columns, ContextPtr context)

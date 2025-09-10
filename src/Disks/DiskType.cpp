@@ -2,14 +2,17 @@
 #include <Poco/String.h>
 #include <Common/Exception.h>
 
+#include <unordered_set>
+
 namespace DB
 {
 namespace ErrorCodes
 {
     extern const int UNKNOWN_ELEMENT_IN_CONFIG;
+    extern const int LOGICAL_ERROR;
 }
 
-MetadataStorageType metadataTypeFromString(const String & type)
+MetadataStorageType metadataTypeFromString(const std::string & type)
 {
     auto check_type = Poco::toLower(type);
     if (check_type == "local")
@@ -20,6 +23,10 @@ MetadataStorageType metadataTypeFromString(const String & type)
         return MetadataStorageType::PlainRewritable;
     if (check_type == "web")
         return MetadataStorageType::StaticWeb;
+    if (check_type == "keeper")
+        return MetadataStorageType::Keeper;
+    if (check_type == "memory")
+        return MetadataStorageType::Memory;
 
     throw Exception(ErrorCodes::UNKNOWN_ELEMENT_IN_CONFIG,
                     "MetadataStorageFactory: unknown metadata storage type: {}", type);
@@ -27,7 +34,7 @@ MetadataStorageType metadataTypeFromString(const String & type)
 
 bool DataSourceDescription::operator==(const DataSourceDescription & other) const
 {
-    return std::tie(type, object_storage_type, description, is_encrypted) == std::tie(other.type, other.object_storage_type, other.description, other.is_encrypted);
+    return std::tie(type, object_storage_type, description, is_encrypted, zookeeper_name) == std::tie(other.type, other.object_storage_type, other.description, other.is_encrypted, other.zookeeper_name);
 }
 
 bool DataSourceDescription::sameKind(const DataSourceDescription & other) const
@@ -53,23 +60,49 @@ std::string DataSourceDescription::toString() const
         case DataSourceType::RAM:
             return "memory";
         case DataSourceType::ObjectStorage:
-        {
-            switch (object_storage_type)
-            {
-                case ObjectStorageType::S3:
-                    return "s3";
-                case ObjectStorageType::HDFS:
-                    return "hdfs";
-                case ObjectStorageType::Azure:
-                    return "azure_blob_storage";
-                case ObjectStorageType::Local:
-                    return "local_blob_storage";
-                case ObjectStorageType::Web:
-                    return "web";
-                case ObjectStorageType::None:
-                    return "none";
-            }
-        }
+            return DB::toString(object_storage_type);
     }
 }
+
+ObjectStorageType objectStorageTypeFromString(const std::string & type)
+{
+    auto check_type = Poco::toLower(type);
+    if (check_type == "s3")
+        return ObjectStorageType::S3;
+    if (check_type == "hdfs")
+        return ObjectStorageType::HDFS;
+    if (check_type == "azure_blob_storage" || check_type == "azure")
+        return ObjectStorageType::Azure;
+    if (check_type == "local_blob_storage" || check_type == "local")
+        return ObjectStorageType::Local;
+    if (check_type == "web")
+        return ObjectStorageType::Web;
+    if (check_type == "none")
+        return ObjectStorageType::None;
+
+    throw Exception(ErrorCodes::UNKNOWN_ELEMENT_IN_CONFIG,
+        "Unknown object storage type: {}", type);
+}
+
+std::string toString(ObjectStorageType type)
+{
+    switch (type)
+    {
+        case ObjectStorageType::S3:
+            return "s3";
+        case ObjectStorageType::HDFS:
+            return "hdfs";
+        case ObjectStorageType::Azure:
+            return "azure_blob_storage";
+        case ObjectStorageType::Local:
+            return "local_blob_storage";
+        case ObjectStorageType::Web:
+            return "web";
+        case ObjectStorageType::None:
+            return "none";
+        case ObjectStorageType::Max:
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected object storage type: Max");
+    }
+}
+
 }

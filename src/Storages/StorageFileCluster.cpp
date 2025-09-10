@@ -67,19 +67,13 @@ StorageFileCluster::StorageFileCluster(
 
     auto & storage_columns = storage_metadata.columns;
 
-    if (context->getSettingsRef()[Setting::use_hive_partitioning])
-    {
-        const std::string sample_path = paths.empty() ? "" : paths.front();
-
-        HivePartitioningUtils::extractPartitionColumnsFromPathAndEnrichStorageColumns(
-            storage_columns,
-            hive_partition_columns_to_read_from_file_path,
-            sample_path,
-            columns_.empty(),
-            std::nullopt,
-            context
-        );
-    }
+    /// Not grabbing the file_columns because it is not necessary to do it here.
+    std::tie(hive_partition_columns_to_read_from_file_path, std::ignore) = HivePartitioningUtils::setupHivePartitioningForFileURLLikeStorage(
+        storage_columns,
+        paths.empty() ? "" : paths.front(),
+        columns_.empty(),
+        std::nullopt,
+        context);
 
     storage_metadata.setConstraints(constraints_);
     setVirtuals(VirtualColumnUtils::getVirtualsForFileLikeStorage(storage_metadata.columns));
@@ -100,7 +94,11 @@ void StorageFileCluster::updateQueryToSendIfNeeded(DB::ASTPtr & query, const Sto
     );
 }
 
-RemoteQueryExecutor::Extension StorageFileCluster::getTaskIteratorExtension(const ActionsDAG::Node * predicate, const ContextPtr & context, const size_t) const
+RemoteQueryExecutor::Extension StorageFileCluster::getTaskIteratorExtension(
+    const ActionsDAG::Node * predicate,
+    const std::optional<ActionsDAG> & /* filter_actions_dag */,
+    const ContextPtr & context,
+    ClusterPtr) const
 {
     auto iterator = std::make_shared<StorageFileSource::FilesIterator>(paths, std::nullopt, predicate, getVirtualsList(), hive_partition_columns_to_read_from_file_path, context);
     auto callback = std::make_shared<TaskIterator>([iter = std::move(iterator)](size_t) mutable -> String { return iter->next(); });
