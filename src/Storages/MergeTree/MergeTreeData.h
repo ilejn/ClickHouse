@@ -34,6 +34,8 @@
 #include <Interpreters/PartLog.h>
 #include <Poco/Timestamp.h>
 #include <Common/threadPoolCallbackRunner.h>
+#include <Storages/MergeTree/MergeTreeExportStatus.h>
+#include <Storages/MergeTree/MergeTreeExportManifest.h>
 
 #include <boost/multi_index_container.hpp>
 #include <boost/multi_index/ordered_index.hpp>
@@ -901,6 +903,12 @@ public:
     /// Moves partition to specified Table
     void movePartitionToTable(const PartitionCommand & command, ContextPtr query_context);
 
+    void exportPartToTable(const PartitionCommand & command, ContextPtr query_context);
+
+    void exportPartToTableImpl(
+        const MergeTreeExportManifest & manifest,
+        ContextPtr local_context);
+
     /// Checks that Partition could be dropped right now
     /// Otherwise - throws an exception with detailed information.
     /// We do not use mutex because it is not very important that the size could change during the operation.
@@ -964,6 +972,7 @@ public:
         bool must_on_same_disk);
 
     virtual std::vector<MergeTreeMutationStatus> getMutationsStatus() const = 0;
+    virtual std::vector<MergeTreeExportStatus> getExportsStatus() const { return {}; }
 
     /// Returns true if table can create new parts with adaptive granularity
     /// Has additional constraint in replicated version
@@ -1144,12 +1153,16 @@ public:
     /// Mutex for currently_moving_parts
     mutable std::mutex moving_parts_mutex;
 
+    mutable std::mutex export_manifests_mutex;
+
+    std::set<MergeTreeExportManifest> export_manifests;
+
     PinnedPartUUIDsPtr getPinnedPartUUIDs() const;
 
     /// Schedules background job to like merge/mutate/fetch an executor
     virtual bool scheduleDataProcessingJob(BackgroundJobsAssignee & assignee) = 0;
     /// Schedules job to move parts between disks/volumes and so on.
-    bool scheduleDataMovingJob(BackgroundJobsAssignee & assignee);
+    virtual bool scheduleDataMovingJob(BackgroundJobsAssignee & assignee);
     bool areBackgroundMovesNeeded() const;
 
 

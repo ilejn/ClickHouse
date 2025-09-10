@@ -8,6 +8,8 @@ namespace DB
 {
 class StorageObjectStorageSink : public SinkToStorage
 {
+friend class StorageObjectStorageImporterSink;
+
 public:
     using ConfigurationPtr = StorageObjectStorage::ConfigurationPtr;
 
@@ -38,7 +40,7 @@ private:
     void cancelBuffers();
 };
 
-class PartitionedStorageObjectStorageSink : public PartitionedSink
+class PartitionedStorageObjectStorageSink : public PartitionedSink::SinkCreator
 {
 public:
     using ConfigurationPtr = StorageObjectStorage::ConfigurationPtr;
@@ -46,6 +48,7 @@ public:
     PartitionedStorageObjectStorageSink(
         ObjectStoragePtr object_storage_,
         ConfigurationPtr configuration_,
+        const std::shared_ptr<ObjectStorageFilePathGenerator> & file_path_generator_,
         std::optional<FormatSettings> format_settings_,
         const Block & sample_block_,
         ContextPtr context_);
@@ -55,6 +58,7 @@ public:
 private:
     ObjectStoragePtr object_storage;
     ConfigurationPtr configuration;
+    std::shared_ptr<ObjectStorageFilePathGenerator> file_path_generator;
 
     const StorageObjectStorage::QuerySettings query_settings;
     const std::optional<FormatSettings> format_settings;
