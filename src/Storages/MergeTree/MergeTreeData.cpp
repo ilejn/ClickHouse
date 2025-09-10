@@ -5988,6 +5988,9 @@ void MergeTreeData::exportPartToTableImpl(
     auto destination_storage = DatabaseCatalog::instance().tryGetTable(manifest.destination_storage_id, getContext());
     if (!destination_storage)
     {
+        std::lock_guard inner_lock(export_manifests_mutex);
+
+        export_manifests.erase(manifest);
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Failed to reconstruct destination storage: {}", manifest.destination_storage_id.getNameForLogs());
     }
 
@@ -6000,6 +6003,9 @@ void MergeTreeData::exportPartToTableImpl(
     /// Most likely the file has already been imported, so we can just return
     if (!sink)
     {
+        std::lock_guard inner_lock(export_manifests_mutex);
+
+        export_manifests.erase(manifest);
         return;
     }
 
