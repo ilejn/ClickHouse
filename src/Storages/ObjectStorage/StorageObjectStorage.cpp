@@ -656,7 +656,7 @@ void StorageObjectStorage::Configuration::initialize(
     }
     else
     {
-        file_path_generator = std::make_shared<ObjectStorageWildcardFilePathGenerator>(configuration_to_initialize.getRawPath().path);
+        file_path_generator = std::make_shared<ObjectStorageWildcardFilePathGenerator>(getRawPath().path);
     }
 
     if (format == "auto")

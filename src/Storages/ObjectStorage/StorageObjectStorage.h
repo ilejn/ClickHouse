@@ -366,7 +366,6 @@ public:
 
     virtual void assertInitialized() const;
 
-private:
     String format = "auto";
     String compression_method = "auto";
     String structure = "auto";

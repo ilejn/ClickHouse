@@ -1268,6 +1268,8 @@ protected:
         are_columns_and_secondary_indices_sizes_calculated = false;
     }
 
+    void startBackgroundMoves();
+
     /// Engine-specific methods
     BrokenPartCallback broken_part_callback;
 
@@ -1711,8 +1713,6 @@ private:
     CurrentlyMovingPartsTaggerPtr checkPartsForMove(const DataPartsVector & parts, SpacePtr space);
 
     bool canUsePolymorphicParts(const MergeTreeSettings & settings, String & out_reason) const;
-
-    void startBackgroundMoves();
 
     bool allow_nullable_key = false;
     bool allow_reverse_key = false;

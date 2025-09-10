@@ -4246,8 +4246,6 @@ void MergeTreeData::changeSettings(
 {
     if (new_settings)
     {
-        bool has_storage_policy_changed = false;
-
         const auto & new_changes = new_settings->as<const ASTSetQuery &>().changes;
         StoragePolicyPtr new_storage_policy = nullptr;
 
@@ -4286,8 +4284,6 @@ void MergeTreeData::changeSettings(
                         disk->createDirectories(fs::path(relative_data_path) / DETACHED_DIR_NAME);
                     }
                     /// FIXME how would that be done while reloading configuration???
-
-                    has_storage_policy_changed = true;
                 }
             }
         }
