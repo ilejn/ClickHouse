@@ -73,8 +73,10 @@ const VersionToSettingsChangesMap & getSettingsChangesHistory()
             {"allow_experimental_database_unity_catalog", false, true, "Turned ON by default for Antalya"},
             {"allow_experimental_database_glue_catalog", false, true, "Turned ON by default for Antalya"},
             {"output_format_parquet_enum_as_byte_array", true, true, "Enable writing Enum as byte array in Parquet by default"},
+            {"lock_object_storage_task_distribution_ms", 0, 0, "New setting."},
             {"object_storage_cluster", "", "", "New setting"},
             {"object_storage_max_nodes", 0, 0, "New setting"},
+            {"object_storage_remote_initiator", false, false, "New setting."},
         });
         addSettingsChanges(settings_changes_history, "25.6",
         {
@@ -173,6 +175,10 @@ const VersionToSettingsChangesMap & getSettingsChangesHistory()
             {"parallel_hash_join_threshold", 0, 0, "New setting"},
             {"function_date_trunc_return_type_behavior", 1, 0, "Change the result type for dateTrunc function for DateTime64/Date32 arguments to DateTime64/Date32 regardless of time unit to get correct result for negative values"},
             /// Release closed. Please use 25.5
+            // Altinity Antalya modifications atop of 25.2
+            {"object_storage_cluster", "", "", "New setting"},
+            {"object_storage_max_nodes", 0, 0, "New setting"},
+            {"use_object_storage_list_objects_cache", true, false, "New setting."},
         });
         addSettingsChanges(settings_changes_history, "25.3",
         {
@@ -190,6 +196,11 @@ const VersionToSettingsChangesMap & getSettingsChangesHistory()
             {"parallel_replicas_for_cluster_engines", false, true, "New setting."},
             {"parallel_hash_join_threshold", 0, 0, "New setting"},
             /// Release closed. Please use 25.4
+        });
+        addSettingsChanges(settings_changes_history, "24.12.2.20000",
+        {
+            // Altinity Antalya modifications atop of 24.12
+            {"input_format_parquet_use_metadata_cache", true, true, "New setting, turned ON by default"}, // https://github.com/Altinity/ClickHouse/pull/586
         });
         addSettingsChanges(settings_changes_history, "25.2",
         {

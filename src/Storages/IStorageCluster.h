@@ -43,7 +43,11 @@ public:
     ClusterPtr getCluster(ContextPtr context) const { return getClusterImpl(context, cluster_name); }
 
     /// Query is needed for pruning by virtual columns (_file, _path)
-    virtual RemoteQueryExecutor::Extension getTaskIteratorExtension(const ActionsDAG::Node * predicate, const ContextPtr & context, size_t number_of_replicas) const = 0;
+    virtual RemoteQueryExecutor::Extension getTaskIteratorExtension(
+        const ActionsDAG::Node * predicate,
+        const std::optional<ActionsDAG> & filter_actions_dag,
+        const ContextPtr & context,
+        ClusterPtr cluster) const = 0;
 
     QueryProcessingStage::Enum getQueryProcessingStage(ContextPtr, QueryProcessingStage::Enum, const StorageSnapshotPtr &, SelectQueryInfo &) const override;
 
@@ -56,8 +60,19 @@ public:
     virtual String getClusterName(ContextPtr /* context */) const { return getOriginalClusterName(); }
 
 protected:
-    virtual void updateBeforeRead(const ContextPtr &) {}
     virtual void updateQueryToSendIfNeeded(ASTPtr & /*query*/, const StorageSnapshotPtr & /*storage_snapshot*/, const ContextPtr & /*context*/) {}
+
+    struct RemoteCallVariables
+    {
+        StoragePtr storage;
+        ContextPtr context;
+    };
+
+    RemoteCallVariables convertToRemote(
+        ClusterPtr cluster,
+        ContextPtr context,
+        const std::string & cluster_name_from_settings,
+        ASTPtr query_to_send);
 
     virtual void readFallBackToPure(
         QueryPlan & /* query_plan */,
@@ -130,7 +145,7 @@ private:
 
     std::optional<RemoteQueryExecutor::Extension> extension;
 
-    void createExtension(const ActionsDAG::Node * predicate, size_t number_of_replicas);
+    void createExtension(const ActionsDAG::Node * predicate);
     ContextPtr updateSettings(const Settings & settings);
 };
 
