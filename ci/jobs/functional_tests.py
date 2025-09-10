@@ -123,6 +123,7 @@ OPTIONS_TO_TEST_RUNNER_ARGUMENTS = {
     "ParallelReplicas": "--no-zookeeper --no-shard --no-parallel-replicas",
     "AsyncInsert": " --no-async-insert",
     "DatabaseReplicated": " --no-stateful --replicated-database --jobs 3",
+    "amd_tsan": " --timeout 1200",  # NOTE (strtgbb): tsan is slow, increase the timeout to avoid timeout errors
 }
 
 
