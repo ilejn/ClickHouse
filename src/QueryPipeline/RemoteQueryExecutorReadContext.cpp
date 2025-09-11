@@ -19,11 +19,15 @@ namespace ErrorCodes
 }
 
 RemoteQueryExecutorReadContext::RemoteQueryExecutorReadContext(
-    RemoteQueryExecutor & executor_, bool suspend_when_query_sent_, bool read_packet_type_separately_)
+    RemoteQueryExecutor & executor_,
+    bool suspend_when_query_sent_,
+    bool read_packet_type_separately_,
+    bool allow_retries_in_cluster_requests_)
     : AsyncTaskExecutor(std::make_unique<Task>(*this))
     , executor(executor_)
     , suspend_when_query_sent(suspend_when_query_sent_)
     , read_packet_type_separately(read_packet_type_separately_)
+    , allow_retries_in_cluster_requests(allow_retries_in_cluster_requests_)
 {
     if (-1 == pipe2(pipe_fd, O_NONBLOCK))
         throw ErrnoException(ErrorCodes::CANNOT_OPEN_FILE, "Cannot create pipe");
@@ -54,18 +58,29 @@ void RemoteQueryExecutorReadContext::Task::run(AsyncCallback async_callback, Sus
     if (read_context.executor.needToSkipUnavailableShard())
         return;
 
-    while (true)
+    try
     {
-        read_context.has_read_packet_part = PacketPart::None;
-
-        if (read_context.read_packet_type_separately)
+        while (true)
         {
-            read_context.packet.type = read_context.executor.getConnections().receivePacketTypeUnlocked(async_callback);
-            read_context.has_read_packet_part = PacketPart::Type;
+            read_context.has_read_packet_part = PacketPart::None;
+
+            if (read_context.read_packet_type_separately)
+            {
+                read_context.packet.type = read_context.executor.getConnections().receivePacketTypeUnlocked(async_callback);
+                read_context.has_read_packet_part = PacketPart::Type;
+                suspend_callback();
+            }
+            read_context.packet = read_context.executor.getConnections().receivePacketUnlocked(async_callback);
+            read_context.has_read_packet_part = PacketPart::Body;
             suspend_callback();
         }
-        read_context.packet = read_context.executor.getConnections().receivePacketUnlocked(async_callback);
-        read_context.has_read_packet_part = PacketPart::Body;
+    }
+    catch (const Exception &)
+    {
+        if (!read_context.allow_retries_in_cluster_requests)
+            throw;
+        read_context.packet.type = Protocol::Server::ConnectionLost;
+        read_context.packet.exception = std::make_unique<Exception>(getCurrentExceptionMessageAndPattern(true), getCurrentExceptionCode());
         suspend_callback();
     }
 }
