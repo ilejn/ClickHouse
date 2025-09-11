@@ -221,6 +221,16 @@ public:
         return client_configuration.for_disk_s3;
     }
 
+    ProviderType getProviderType() const { return provider_type; }
+    std::string getGCSOAuthToken() const
+    {
+        if (provider_type != ProviderType::GCS)
+            return "";
+
+        const auto & client = PocoHTTPClientGCPOAuth(client_configuration);
+        return client.getBearerToken();
+    }
+
     ThrottlerPtr getPutRequestThrottler() const { return client_configuration.put_request_throttler; }
     ThrottlerPtr getGetRequestThrottler() const { return client_configuration.get_request_throttler; }
 
@@ -269,7 +279,7 @@ private:
 
     void updateURIForBucket(const std::string & bucket, S3::URI new_uri) const;
     std::optional<S3::URI> getURIFromError(const Aws::S3::S3Error & error) const;
-    std::optional<Aws::S3::S3Error> updateURIForBucketForHead(const std::string & bucket) const;
+    std::optional<Aws::S3::S3Error> updateURIForBucketForHead(const std::string & bucket, const std::string & key) const;
 
     std::optional<S3::URI> getURIForBucket(const std::string & bucket) const;
 

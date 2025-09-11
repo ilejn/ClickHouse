@@ -30,15 +30,14 @@ namespace DB
 namespace Setting
 {
     extern const SettingsBool use_hive_partitioning;
+    extern const SettingsUInt64 lock_object_storage_task_distribution_ms;
     extern const SettingsString object_storage_cluster;
 }
 
 namespace ErrorCodes
 {
     extern const int LOGICAL_ERROR;
-    extern const int INCORRECT_DATA;
-    extern const int UNKNOWN_FUNCTION;
-    extern const int NOT_IMPLEMENTED;
+    extern const int INVALID_SETTING_VALUE;
 }
 
 String StorageObjectStorageCluster::getPathSample(ContextPtr context)
@@ -138,37 +137,14 @@ StorageObjectStorageCluster::StorageObjectStorageCluster(
     if (sample_path.empty() && context_->getSettingsRef()[Setting::use_hive_partitioning] && !configuration->isDataLakeConfiguration() && !configuration->getPartitionStrategy())
         sample_path = getPathSample(context_);
 
-    /*
-     * If `partition_strategy=hive`, the partition columns shall be extracted from the `PARTITION BY` expression.
-     * There is no need to read from the filepath.
-     *
-     * Otherwise, in case `use_hive_partitioning=1`, we can keep the old behavior of extracting it from the sample path.
-     * And if the schema was inferred (not specified in the table definition), we need to enrich it with the path partition columns
-     */
-    if (configuration->getPartitionStrategy() && configuration->getPartitionStrategyType() == PartitionStrategyFactory::StrategyType::HIVE)
-    {
-        hive_partition_columns_to_read_from_file_path = configuration->getPartitionStrategy()->getPartitionColumns();
-    }
-    else if (context_->getSettingsRef()[Setting::use_hive_partitioning])
-    {
-        HivePartitioningUtils::extractPartitionColumnsFromPathAndEnrichStorageColumns(
-            columns,
-            hive_partition_columns_to_read_from_file_path,
-            sample_path,
-            columns_in_table_or_function_definition.empty(),
-            std::nullopt,
-            context_
-        );
-    }
-
-    if (hive_partition_columns_to_read_from_file_path.size() == columns.size())
-    {
-        throw Exception(
-            ErrorCodes::INCORRECT_DATA,
-            "A hive partitioned file can't contain only partition columns. Try reading it with `partition_strategy=wildcard` and `use_hive_partitioning=0`");
-    }
-
-    /// Hive: Not building the file_columns like `StorageObjectStorage` does because it is not necessary to do it here.
+    /// Not grabbing the file_columns because it is not necessary to do it here.
+    std::tie(hive_partition_columns_to_read_from_file_path, std::ignore) = HivePartitioningUtils::setupHivePartitioningForObjectStorage(
+        columns,
+        configuration,
+        sample_path,
+        columns_in_table_or_function_definition.empty(),
+        std::nullopt,
+        context_);
 
     StorageInMemoryMetadata metadata;
     metadata.setColumns(columns);
@@ -190,7 +166,8 @@ StorageObjectStorageCluster::StorageObjectStorageCluster(
         /* distributed_processing */false,
         partition_by,
         /* is_table_function */false,
-        /* lazy_init */lazy_init);
+        /* lazy_init */lazy_init,
+        sample_path);
 
     auto virtuals_ = getVirtualsPtr();
     if (virtuals_)
@@ -463,13 +440,44 @@ void StorageObjectStorageCluster::updateQueryToSendIfNeeded(
 }
 
 RemoteQueryExecutor::Extension StorageObjectStorageCluster::getTaskIteratorExtension(
-    const ActionsDAG::Node * predicate, const ContextPtr & local_context, const size_t number_of_replicas) const
+    const ActionsDAG::Node * predicate,
+    const std::optional<ActionsDAG> & filter_actions_dag,
+    const ContextPtr & local_context,
+    ClusterPtr cluster) const
 {
     auto iterator = StorageObjectStorageSource::createFileIterator(
         configuration, configuration->getQuerySettings(local_context), object_storage, /* distributed_processing */false,
-        local_context, predicate, {}, virtual_columns, hive_partition_columns_to_read_from_file_path, nullptr, local_context->getFileProgressCallback(), /*ignore_archive_globs=*/true, /*skip_object_metadata=*/true);
+        local_context, predicate, filter_actions_dag, getVirtualsList(), hive_partition_columns_to_read_from_file_path, nullptr, local_context->getFileProgressCallback(), /*ignore_archive_globs=*/true, /*skip_object_metadata=*/true);
 
-    auto task_distributor = std::make_shared<StorageObjectStorageStableTaskDistributor>(iterator, number_of_replicas);
+    std::vector<std::string> ids_of_hosts;
+    for (const auto & shard : cluster->getShardsInfo())
+    {
+        if (shard.per_replica_pools.empty())
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Cluster {} with empty shard {}", cluster->getName(), shard.shard_num);
+        for (const auto & replica : shard.per_replica_pools)
+        {
+            if (!replica)
+                throw Exception(ErrorCodes::LOGICAL_ERROR, "Cluster {}, shard {} with empty node", cluster->getName(), shard.shard_num);
+            ids_of_hosts.push_back(replica->getAddress());
+        }
+    }
+
+    uint64_t lock_object_storage_task_distribution_ms = local_context->getSettingsRef()[Setting::lock_object_storage_task_distribution_ms];
+
+    /// Check value to avoid negative result after conversion in microseconds.
+    /// Poco::Timestamp::TimeDiff is signed int 64.
+    static const uint64_t lock_object_storage_task_distribution_ms_max = 0x0020000000000000ULL;
+    if (lock_object_storage_task_distribution_ms > lock_object_storage_task_distribution_ms_max)
+        throw Exception(ErrorCodes::INVALID_SETTING_VALUE,
+            "Value lock_object_storage_task_distribution_ms is too big: {}, allowed maximum is {}",
+            lock_object_storage_task_distribution_ms,
+            lock_object_storage_task_distribution_ms_max
+        );
+
+    auto task_distributor = std::make_shared<StorageObjectStorageStableTaskDistributor>(
+        iterator,
+        ids_of_hosts,
+        lock_object_storage_task_distribution_ms);
 
     auto callback = std::make_shared<TaskIterator>(
         [task_distributor](size_t number_of_current_replica) mutable -> String

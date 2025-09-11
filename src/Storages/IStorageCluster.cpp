@@ -1,5 +1,8 @@
 #include <Storages/IStorageCluster.h>
 
+#include <pcg_random.hpp>
+#include <Common/randomSeed.h>
+
 #include <Common/Exception.h>
 #include <Core/Settings.h>
 #include <Core/QueryProcessingStage.h>
@@ -13,9 +16,9 @@
 #include <Interpreters/AddDefaultDatabaseVisitor.h>
 #include <Interpreters/TranslateQualifiedNamesVisitor.h>
 #include <Interpreters/InterpreterSelectQueryAnalyzer.h>
+#include <Planner/Utils.h>
 #include <Processors/Sources/NullSource.h>
 #include <Processors/Sources/RemoteSource.h>
-#include <Processors/QueryPlan/SourceStepWithFilter.h>
 #include <QueryPipeline/narrowPipe.h>
 #include <QueryPipeline/Pipe.h>
 #include <QueryPipeline/RemoteQueryExecutor.h>
@@ -23,12 +26,14 @@
 #include <Storages/IStorage.h>
 #include <Storages/SelectQueryInfo.h>
 #include <Storages/StorageDictionary.h>
-#include <Storages/extractTableFunctionFromSelectQuery.h>
 #include <Planner/Utils.h>
 #include <Analyzer/QueryTreeBuilder.h>
 #include <Analyzer/QueryNode.h>
 #include <Analyzer/ColumnNode.h>
 #include <Analyzer/InDepthQueryTreeVisitor.h>
+#include <Storages/StorageDistributed.h>
+#include <TableFunctions/TableFunctionFactory.h>
+#include <Storages/extractTableFunctionFromSelectQuery.h>
 
 #include <algorithm>
 #include <memory>
@@ -48,6 +53,7 @@ namespace Setting
     extern const SettingsNonZeroUInt64 max_parallel_replicas;
     extern const SettingsUInt64 object_storage_max_nodes;
     extern const SettingsObjectStorageClusterJoinMode object_storage_cluster_join_mode;
+    extern const SettingsBool object_storage_remote_initiator;
 }
 
 namespace ErrorCodes
@@ -66,51 +72,6 @@ IStorageCluster::IStorageCluster(
 {
 }
 
-class ReadFromCluster : public SourceStepWithFilter
-{
-public:
-    std::string getName() const override { return "ReadFromCluster"; }
-    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
-    void applyFilters(ActionDAGNodes added_filter_nodes) override;
-
-    ReadFromCluster(
-        const Names & column_names_,
-        const SelectQueryInfo & query_info_,
-        const StorageSnapshotPtr & storage_snapshot_,
-        const ContextPtr & context_,
-        Block sample_block,
-        std::shared_ptr<IStorageCluster> storage_,
-        ASTPtr query_to_send_,
-        QueryProcessingStage::Enum processed_stage_,
-        ClusterPtr cluster_,
-        LoggerPtr log_)
-        : SourceStepWithFilter(
-            std::move(sample_block),
-            column_names_,
-            query_info_,
-            storage_snapshot_,
-            context_)
-        , storage(std::move(storage_))
-        , query_to_send(std::move(query_to_send_))
-        , processed_stage(processed_stage_)
-        , cluster(std::move(cluster_))
-        , log(log_)
-    {
-    }
-
-private:
-    std::shared_ptr<IStorageCluster> storage;
-    ASTPtr query_to_send;
-    QueryProcessingStage::Enum processed_stage;
-    ClusterPtr cluster;
-    LoggerPtr log;
-
-    std::optional<RemoteQueryExecutor::Extension> extension;
-
-    void createExtension(const ActionsDAG::Node * predicate, size_t number_of_replicas);
-    ContextPtr updateSettings(const Settings & settings);
-};
-
 void ReadFromCluster::applyFilters(ActionDAGNodes added_filter_nodes)
 {
     SourceStepWithFilter::applyFilters(std::move(added_filter_nodes));
@@ -119,19 +80,15 @@ void ReadFromCluster::applyFilters(ActionDAGNodes added_filter_nodes)
     if (filter_actions_dag)
         predicate = filter_actions_dag->getOutputs().at(0);
 
-    auto max_replicas_to_use = static_cast<UInt64>(cluster->getShardsInfo().size());
-    if (context->getSettingsRef()[Setting::max_parallel_replicas] > 1)
-        max_replicas_to_use = std::min(max_replicas_to_use, context->getSettingsRef()[Setting::max_parallel_replicas].value);
-
-    createExtension(predicate, max_replicas_to_use);
+    createExtension(predicate);
 }
 
-void ReadFromCluster::createExtension(const ActionsDAG::Node * predicate, size_t number_of_replicas)
+void ReadFromCluster::createExtension(const ActionsDAG::Node * predicate)
 {
     if (extension)
         return;
 
-    extension = storage->getTaskIteratorExtension(predicate, context, number_of_replicas);
+    extension = storage->getTaskIteratorExtension(predicate, filter_actions_dag, context, cluster);
 }
 
 namespace
@@ -261,7 +218,7 @@ void IStorageCluster::updateQueryWithJoinToSendIfNeeded(
 
         if (has_join)
         {
-            auto table_function = extractTableFunctionFromSelectQueryPtr(query_to_send);
+            auto table_function = extractTableFunctionASTPtrFromSelectQuery(query_to_send);
             auto query_tree_distributed = buildTableFunctionQueryTree(table_function, context);
             auto & table_function_ast = table_function->as<ASTFunction &>();
             query_tree_distributed->setAlias(table_function_ast.alias);
@@ -324,8 +281,9 @@ void IStorageCluster::read(
 
     storage_snapshot->check(column_names);
 
-    updateBeforeRead(context);
-    auto cluster = getClusterImpl(context, cluster_name_from_settings, context->getSettingsRef()[Setting::object_storage_max_nodes]);
+    const auto & settings = context->getSettingsRef();
+
+    auto cluster = getClusterImpl(context, cluster_name_from_settings, settings[Setting::object_storage_max_nodes]);
 
     /// Calculate the header. This is significant, because some columns could be thrown away in some cases like query with count(*)
 
@@ -334,7 +292,7 @@ void IStorageCluster::read(
 
     updateQueryWithJoinToSendIfNeeded(query_to_send, query_info.query_tree, context);
 
-    if (context->getSettingsRef()[Setting::allow_experimental_analyzer])
+    if (settings[Setting::allow_experimental_analyzer])
     {
         sample_block = InterpreterSelectQueryAnalyzer::getSampleBlock(query_to_send, context, SelectQueryOptions(processed_stage));
     }
@@ -346,6 +304,17 @@ void IStorageCluster::read(
     }
 
     updateQueryToSendIfNeeded(query_to_send, storage_snapshot, context);
+
+    if (settings[Setting::object_storage_remote_initiator])
+    {
+        auto storage_and_context = convertToRemote(cluster, context, cluster_name_from_settings, query_to_send);
+        auto src_distributed = std::dynamic_pointer_cast<StorageDistributed>(storage_and_context.storage);
+        auto modified_query_info = query_info;
+        modified_query_info.cluster = src_distributed->getCluster();
+        auto new_storage_snapshot = storage_and_context.storage->getStorageSnapshot(storage_snapshot->metadata, storage_and_context.context);
+        storage_and_context.storage->read(query_plan, column_names, new_storage_snapshot, modified_query_info, storage_and_context.context, processed_stage, max_block_size, num_streams);
+        return;
+    }
 
     RestoreQualifiedNamesVisitor::Data data;
     data.distributed_table = DatabaseAndTableWithAlias(*getTableExpression(query_to_send->as<ASTSelectQuery &>(), 0));
@@ -372,6 +341,62 @@ void IStorageCluster::read(
         log);
 
     query_plan.addStep(std::move(reading));
+}
+
+IStorageCluster::RemoteCallVariables IStorageCluster::convertToRemote(
+    ClusterPtr cluster,
+    ContextPtr context,
+    const std::string & cluster_name_from_settings,
+    ASTPtr query_to_send)
+{
+    auto host_addresses = cluster->getShardsAddresses();
+    if (host_addresses.empty())
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Empty cluster {}", cluster_name_from_settings);
+
+    static pcg64 rng(randomSeed());
+    size_t shard_num = rng() % host_addresses.size();
+    auto shard_addresses = host_addresses[shard_num];
+    /// After getClusterImpl each shard must have exactly 1 replica
+    if (shard_addresses.size() != 1)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Size of shard {} in cluster {} is not equal 1", shard_num, cluster_name_from_settings);
+    auto host_name = shard_addresses[0].toString();
+
+    LOG_INFO(log, "Choose remote initiator '{}'", host_name);
+
+    bool secure = shard_addresses[0].secure == Protocol::Secure::Enable;
+    std::string remote_function_name = secure ? "remoteSecure" : "remote";
+
+    /// Clean object_storage_remote_initiator setting to avoid infinite remote call
+    auto new_context = Context::createCopy(context);
+    new_context->setSetting("object_storage_remote_initiator", false);
+
+    auto * select_query = query_to_send->as<ASTSelectQuery>();
+    if (!select_query)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected SELECT query");
+
+    auto query_settings = select_query->settings();
+    if (query_settings)
+    {
+        auto & settings_ast = query_settings->as<ASTSetQuery &>();
+        if (settings_ast.changes.removeSetting("object_storage_remote_initiator") && settings_ast.changes.empty())
+        {
+            select_query->setExpression(ASTSelectQuery::Expression::SETTINGS, {});
+        }
+    }
+
+    ASTTableExpression * table_expression = extractTableExpressionASTPtrFromSelectQuery(query_to_send);
+    if (!table_expression)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "Can't find table expression");
+
+    auto remote_query = makeASTFunction(remote_function_name, std::make_shared<ASTLiteral>(host_name), table_expression->table_function);
+
+    table_expression->table_function = remote_query;
+
+    auto remote_function = TableFunctionFactory::instance().get(remote_query, new_context);
+
+    auto storage = remote_function->execute(query_to_send, new_context, remote_function_name);
+
+    return RemoteCallVariables{storage, new_context};
 }
 
 SinkToStoragePtr IStorageCluster::write(
@@ -403,7 +428,7 @@ void ReadFromCluster::initializePipeline(QueryPipelineBuilder & pipeline, const 
     if (current_settings[Setting::max_parallel_replicas] > 1)
         max_replicas_to_use = std::min(max_replicas_to_use, current_settings[Setting::max_parallel_replicas].value);
 
-    createExtension(nullptr, max_replicas_to_use);
+    createExtension(nullptr);
 
     for (const auto & shard_info : cluster->getShardsInfo())
     {

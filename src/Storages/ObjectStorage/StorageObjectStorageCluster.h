@@ -29,7 +29,10 @@ public:
     std::string getName() const override;
 
     RemoteQueryExecutor::Extension getTaskIteratorExtension(
-        const ActionsDAG::Node * predicate, const ContextPtr & context, size_t number_of_replicas) const override;
+        const ActionsDAG::Node * predicate,
+        const std::optional<ActionsDAG> & filter_actions_dag,
+        const ContextPtr & context,
+        ClusterPtr cluster) const override;
 
     String getPathSample(ContextPtr context);
 
@@ -94,7 +97,6 @@ private:
     const String engine_name;
     StorageObjectStorage::ConfigurationPtr configuration;
     const ObjectStoragePtr object_storage;
-    NamesAndTypesList virtual_columns;
     NamesAndTypesList hive_partition_columns_to_read_from_file_path;
     bool cluster_name_in_settings;
 

@@ -78,7 +78,8 @@ public:
         bool distributed_processing_ = false,
         ASTPtr partition_by_ = nullptr,
         bool is_table_function_ = false,
-        bool lazy_init = false);
+        bool lazy_init = false,
+        std::optional<std::string> sample_path_ = std::nullopt);
 
     String getName() const override;
 
@@ -177,7 +178,7 @@ protected:
     bool update_configuration_on_read_write = true;
 
     NamesAndTypesList hive_partition_columns_to_read_from_file_path;
-    ColumnsDescription file_columns;
+    NamesAndTypesList file_columns;
 
     LoggerPtr log;
 };
@@ -288,6 +289,7 @@ public:
     virtual void initPartitionStrategy(ASTPtr partition_by, const ColumnsDescription & columns, ContextPtr context);
 
     virtual std::optional<ColumnsDescription> tryGetTableStructureFromMetadata() const;
+    virtual std::optional<String> tryGetSamplePathFromMetadata() const;
 
     virtual bool supportsFileIterator() const { return false; }
     virtual bool supportsWrites() const { return true; }

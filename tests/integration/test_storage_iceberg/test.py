@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import uuid
 import time
 from datetime import datetime, timezone
@@ -744,7 +745,7 @@ def test_cluster_table_function(started_cluster, format_version, storage_type):
     # Cluster Query with node1 as coordinator and storage type as arg
     select_cluster_with_type_arg, query_id_cluster_with_type_arg = make_query_from_function(
         run_on_cluster=True,
-        storage_type_as_arg=True,        
+        storage_type_as_arg=True,
     )
 
     # Cluster Query with node1 as coordinator and storage type in named collection
@@ -853,6 +854,30 @@ def test_cluster_table_function(started_cluster, format_version, storage_type):
     count_secondary_subqueries(started_cluster, query_id_pure_table_engine_cluster_with_type_arg, 1, "table engine with cluster setting with storage type in args")
     count_secondary_subqueries(started_cluster, query_id_pure_table_engine_with_type_in_nc, 0, "table engine with storage type in named collection")
     count_secondary_subqueries(started_cluster, query_id_pure_table_engine_cluster_with_type_in_nc, 1, "table engine with cluster setting with storage type in named collection")
+
+    # Cluster Query with node1 as coordinator
+    table_function_expr_cluster = get_creation_expression(
+        storage_type,
+        TABLE_NAME,
+        started_cluster,
+        table_function=True,
+        run_on_cluster=True,
+    )
+    select_remote_cluster = (
+        instance.query(f"SELECT * FROM remote('node2',{table_function_expr_cluster})")
+        .strip()
+        .split()
+    )
+    assert len(select_remote_cluster) == 600
+    assert select_remote_cluster == select_regular
+
+    select_remote_cluster = (
+        instance.query(f"SELECT * FROM remote('node2',{table_function_expr_cluster})")
+        .strip()
+        .split()
+    )
+    assert len(select_remote_cluster) == 600
+    assert select_remote_cluster == select_regular
 
 
 @pytest.mark.parametrize("format_version", ["1", "2"])
@@ -1914,7 +1939,7 @@ def test_explanation(started_cluster, format_version, storage_type):
             [
                 "Expression ((Project names + (Projection + Change column names to column identifiers)))"
             ],
-            [f"  Iceberg{storage_type.title()}(default.{TABLE_NAME})Source"],
+            [f"  Iceberg{storage_type.title()}(default.{TABLE_NAME})ReadStep"],
         ]
 
         assert res == expected
@@ -2020,7 +2045,7 @@ def test_metadata_file_selection_from_version_hint(started_cluster, format_versi
         spark.sql(
             f"INSERT INTO {TABLE_NAME} select id, char(id + ascii('a')) from range(10)"
         )
-        
+
     # test the case where version_hint.text file contains just the version number
     with open(f"/iceberg_data/default/{TABLE_NAME}/metadata/version-hint.text", "w") as f:
         f.write('5')
@@ -2235,7 +2260,10 @@ def check_validity_and_get_prunned_files_general(instance, table_name, settings1
 
 
 @pytest.mark.parametrize("storage_type", ["s3", "azure", "local"])
-def test_partition_pruning(started_cluster, storage_type):
+@pytest.mark.parametrize("run_on_cluster", [False, True])
+def test_partition_pruning(started_cluster, storage_type, run_on_cluster):
+    if run_on_cluster and storage_type == "local":
+        pytest.skip("Local storage is not supported on cluster")
     instance = started_cluster.instances["node1"]
     spark = started_cluster.spark_session
     TABLE_NAME = "test_partition_pruning_" + storage_type + "_" + get_uuid_str()
@@ -2282,7 +2310,7 @@ def test_partition_pruning(started_cluster, storage_type):
     )
 
     creation_expression = get_creation_expression(
-        storage_type, TABLE_NAME, started_cluster, table_function=True
+        storage_type, TABLE_NAME, started_cluster, table_function=True, run_on_cluster=run_on_cluster
     )
 
     def check_validity_and_get_prunned_files(select_expression):
@@ -3088,7 +3116,10 @@ def test_explicit_metadata_file(started_cluster, storage_type):
         create_iceberg_table(storage_type, instance, TABLE_NAME, started_cluster, explicit_metadata_path="../metadata/v11.metadata.json")
 
 @pytest.mark.parametrize("storage_type", ["s3", "azure", "local"])
-def test_minmax_pruning_with_null(started_cluster, storage_type):
+@pytest.mark.parametrize("run_on_cluster", [False, True])
+def test_minmax_pruning_with_null(started_cluster, storage_type, run_on_cluster):
+    if run_on_cluster and storage_type == "local":
+        pytest.skip("Local storage is not supported on cluster")
     instance = started_cluster.instances["node1"]
     spark = started_cluster.spark_session
     TABLE_NAME = "test_minmax_pruning_with_null" + storage_type + "_" + get_uuid_str()
@@ -3158,7 +3189,7 @@ def test_minmax_pruning_with_null(started_cluster, storage_type):
     )
 
     creation_expression = get_creation_expression(
-        storage_type, TABLE_NAME, started_cluster, table_function=True
+        storage_type, TABLE_NAME, started_cluster, table_function=True, run_on_cluster=run_on_cluster
     )
 
     def check_validity_and_get_prunned_files(select_expression):
@@ -3378,3 +3409,42 @@ def test_minmax_pruning_for_arrays_and_maps_subfields_disabled(started_cluster, 
     table_select_expression = table_creation_expression
 
     instance.query(f"SELECT * FROM {table_select_expression} ORDER BY ALL")
+
+
+@pytest.mark.parametrize("storage_type", ["local", "s3"])
+def test_compressed_metadata(started_cluster, storage_type):
+    instance = started_cluster.instances["node1"]
+    spark = started_cluster.spark_session
+    TABLE_NAME = "test_compressed_metadata_" + storage_type + "_" + get_uuid_str()
+
+    table_properties = {
+        "write.metadata.compression": "gzip"
+    }
+
+    df = spark.createDataFrame([
+        (1, "Alice"),
+        (2, "Bob")
+    ], ["id", "name"])
+
+    # for some reason write.metadata.compression is not working :(
+    df.writeTo(TABLE_NAME) \
+        .tableProperty("write.metadata.compression", "gzip") \
+        .using("iceberg") \
+        .create()
+
+    # manual compression of metadata file before upload, still test some scenarios
+    subprocess.check_output(f"gzip /iceberg_data/default/{TABLE_NAME}/metadata/v1.metadata.json", shell=True)
+
+    # Weird but compression extension is really in the middle of the file name, not in the end...
+    subprocess.check_output(f"mv /iceberg_data/default/{TABLE_NAME}/metadata/v1.metadata.json.gz /iceberg_data/default/{TABLE_NAME}/metadata/v1.gz.metadata.json", shell=True)
+
+    default_upload_directory(
+        started_cluster,
+        storage_type,
+        f"/iceberg_data/default/{TABLE_NAME}/",
+        f"/iceberg_data/default/{TABLE_NAME}/",
+    )
+
+    create_iceberg_table(storage_type, instance, TABLE_NAME, started_cluster, explicit_metadata_path="")
+
+    assert instance.query(f"SELECT * FROM {TABLE_NAME} WHERE not ignore(*)") == "1\tAlice\n2\tBob\n"

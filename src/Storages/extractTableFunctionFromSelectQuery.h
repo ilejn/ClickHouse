@@ -6,8 +6,10 @@
 
 namespace DB
 {
+struct ASTTableExpression;
 
-ASTPtr extractTableFunctionFromSelectQueryPtr(ASTPtr & query);
+ASTTableExpression * extractTableExpressionASTPtrFromSelectQuery(ASTPtr & query);
+ASTPtr extractTableFunctionASTPtrFromSelectQuery(ASTPtr & query);
 ASTFunction * extractTableFunctionFromSelectQuery(ASTPtr & query);
 ASTExpressionList * extractTableFunctionArgumentsFromSelectQuery(ASTPtr & query);
 
