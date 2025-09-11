@@ -111,7 +111,7 @@ ColumnsDescription PartLogElement::getColumnsDescription()
             "MutatePartStart — Mutating of a data part has started, "
             "MutatePart — Mutating of a data part has finished, "
             "MovePart — Moving the data part from the one disk to another one."
-            "ExportPart — Exporting the data part from a merge tree table to one (e.g, object storage)."},
+            "ExportPart — Exporting the data part from a MergeTree table into a target table that represents external storage (e.g., object storage or a data lake).."},
         {"merge_reason", std::move(merge_reason_datatype),
             "The reason for the event with type MERGE_PARTS. Can have one of the following values: "
             "NotAMerge — The current event has the type other than MERGE_PARTS, "

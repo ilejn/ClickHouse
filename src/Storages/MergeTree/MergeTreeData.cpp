@@ -307,6 +307,7 @@ namespace ErrorCodes
     extern const int LIMIT_EXCEEDED;
     extern const int CANNOT_FORGET_PARTITION;
     extern const int DATA_TYPE_CANNOT_BE_USED_IN_KEY;
+    extern const int UNKNOWN_TABLE;
 }
 
 static void checkSuspiciousIndices(const ASTFunction * index_function)
@@ -5904,7 +5905,7 @@ void MergeTreeData::exportPartToTable(const PartitionCommand & command, ContextP
     }
 
     if (!dest_storage->supportsImport())
-        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Destination storage {} does not support importing merge tree partitions", dest_storage->getName());
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Destination storage {} does not support MergeTree parts or uses unsupported partitioning", dest_storage->getName());
 
     auto query_to_string = [] (const ASTPtr & ast)
     {
@@ -5971,7 +5972,7 @@ void MergeTreeData::exportPartToTableImpl(
 
     auto metadata_snapshot = getInMemoryMetadataPtr();
     Names columns_to_read = metadata_snapshot->getColumns().getNamesOfPhysical();
-    StorageSnapshotPtr storage_snapshot = getStorageSnapshot(metadata_snapshot, local_context);
+    StorageSnapshotPtr storage_snapshot = getStorageSnapshot(metadata_snapshot, context_copy);
 
     MergeTreeSequentialSourceType read_type = MergeTreeSequentialSourceType::Export;
 
@@ -5990,8 +5991,9 @@ void MergeTreeData::exportPartToTableImpl(
     {
         std::lock_guard inner_lock(export_manifests_mutex);
 
+        const auto destination_storage_id_name = manifest.destination_storage_id.getNameForLogs();
         export_manifests.erase(manifest);
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Failed to reconstruct destination storage: {}", manifest.destination_storage_id.getNameForLogs());
+        throw Exception(ErrorCodes::UNKNOWN_TABLE, "Failed to reconstruct destination storage: {}", destination_storage_id_name);
     }
 
     auto sink = destination_storage->import(
@@ -6046,7 +6048,7 @@ void MergeTreeData::exportPartToTableImpl(
         context_copy,
         getLogger("ExportPartition"));
 
-    QueryPlanOptimizationSettings optimization_settings(local_context);
+    QueryPlanOptimizationSettings optimization_settings(context_copy);
     auto pipeline_settings = BuildQueryPipelineSettings(context_copy);
     auto builder = plan_for_part.buildQueryPipeline(optimization_settings, pipeline_settings);
     auto pipeline = QueryPipelineBuilder::getPipeline(std::move(*builder));
