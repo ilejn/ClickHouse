@@ -8752,9 +8752,7 @@ MergeTreeData::CurrentlyMovingPartsTagger::~CurrentlyMovingPartsTagger()
 
 bool MergeTreeData::scheduleDataMovingJob(BackgroundJobsAssignee & assignee)
 {
-    if (parts_mover.moves_blocker.isCancelled())
-        return false;
-
+    if (!parts_mover.moves_blocker.isCancelled())
     {
         auto moving_tagger = selectPartsForMove();
         if (!moving_tagger->parts_to_move.empty())
