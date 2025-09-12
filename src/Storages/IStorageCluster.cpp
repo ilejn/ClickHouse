@@ -55,6 +55,11 @@ namespace ErrorCodes
     extern const int NOT_IMPLEMENTED;
 }
 
+namespace ErrorCodes
+{
+    extern const int ALL_CONNECTION_TRIES_FAILED;
+}
+
 IStorageCluster::IStorageCluster(
     const String & cluster_name_,
     const StorageID & table_id_,
@@ -293,10 +298,10 @@ void ReadFromCluster::initializePipeline(QueryPipelineBuilder & pipeline, const 
         pipes.emplace_back(std::move(pipe));
     }
 
-    auto pipe = Pipe::unitePipes(std::move(pipes));
-    if (pipe.empty())
-        pipe = Pipe(std::make_shared<NullSource>(getOutputHeader()));
+    if (pipes.empty())
+        throw Exception(ErrorCodes::ALL_CONNECTION_TRIES_FAILED, "Cannot connect to any replica for query execution");
 
+    auto pipe = Pipe::unitePipes(std::move(pipes));
     for (const auto & processor : pipe.getProcessors())
         processors.emplace_back(processor);
 
