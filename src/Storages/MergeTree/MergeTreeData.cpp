@@ -196,6 +196,7 @@ namespace Setting
     extern const SettingsBool enable_shared_storage_snapshot_in_query;
     extern const SettingsUInt64 merge_tree_storage_snapshot_sleep_ms;
     extern const SettingsBool allow_experimental_export_merge_tree_part;
+    extern const SettingsUInt64 min_bytes_to_use_direct_io;
 }
 
 namespace MergeTreeSetting
@@ -5964,15 +5965,9 @@ void MergeTreeData::exportPartToTableImpl(
         export_manifests.erase(manifest);
     };
 
-    auto context_copy = Context::createCopy(local_context);
-
-    /// Manually disable parallelism because the idea is to control parallelism with tasks, not with formatting
-    context_copy->setSetting("output_format_parallel_formatting", false);
-    context_copy->setSetting("max_threads", 1);
-
     auto metadata_snapshot = getInMemoryMetadataPtr();
     Names columns_to_read = metadata_snapshot->getColumns().getNamesOfPhysical();
-    StorageSnapshotPtr storage_snapshot = getStorageSnapshot(metadata_snapshot, context_copy);
+    StorageSnapshotPtr storage_snapshot = getStorageSnapshot(metadata_snapshot, local_context);
 
     MergeTreeSequentialSourceType read_type = MergeTreeSequentialSourceType::Export;
 
@@ -5999,7 +5994,7 @@ void MergeTreeData::exportPartToTableImpl(
     auto sink = destination_storage->import(
         manifest.data_part->name,
         block_with_partition_values,
-        context_copy,
+        local_context,
         part_log_wrapper);
 
     /// Most likely the file has already been imported, so we can just return
@@ -6011,9 +6006,8 @@ void MergeTreeData::exportPartToTableImpl(
         return;
     }
 
-    /// todo implement these settings
     bool apply_deleted_mask = true;
-    bool read_with_direct_io = false;
+    bool read_with_direct_io = local_context->getSettingsRef()[Setting::min_bytes_to_use_direct_io] > manifest.data_part->getBytesOnDisk();
     bool prefetch = false;
 
     MergeTreeData::IMutationsSnapshot::Params params
@@ -6027,7 +6021,7 @@ void MergeTreeData::exportPartToTableImpl(
     auto alter_conversions = MergeTreeData::getAlterConversionsForPart(
         manifest.data_part,
         mutations_snapshot,
-        context_copy);
+        local_context);
 
     QueryPlan plan_for_part;
 
@@ -6045,11 +6039,11 @@ void MergeTreeData::exportPartToTableImpl(
         std::nullopt,
         read_with_direct_io,
         prefetch,
-        context_copy,
+        local_context,
         getLogger("ExportPartition"));
 
-    QueryPlanOptimizationSettings optimization_settings(context_copy);
-    auto pipeline_settings = BuildQueryPipelineSettings(context_copy);
+    QueryPlanOptimizationSettings optimization_settings(local_context);
+    auto pipeline_settings = BuildQueryPipelineSettings(local_context);
     auto builder = plan_for_part.buildQueryPipeline(optimization_settings, pipeline_settings);
     auto pipeline = QueryPipelineBuilder::getPipeline(std::move(*builder));
 
