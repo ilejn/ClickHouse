@@ -1,4 +1,4 @@
--- Tags: no-parallel, no-fasttest
+-- Tags: no-parallel, no-fasttest, no-parallel-replicas
 
 DROP TABLE IF EXISTS t_parquet_03262;
 
