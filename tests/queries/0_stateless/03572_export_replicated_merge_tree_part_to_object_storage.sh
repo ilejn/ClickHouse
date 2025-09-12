@@ -18,15 +18,19 @@ query "CREATE TABLE $rmt_table (id UInt64, year UInt16) ENGINE = ReplicatedMerge
 query "CREATE TABLE $s3_table (id UInt64, year UInt16) ENGINE = S3(s3_conn, filename='$s3_table', format=Parquet, partition_strategy='hive') PARTITION BY year"
 
 query "INSERT INTO $rmt_table VALUES (1, 2020), (2, 2020), (3, 2020), (4, 2021)"
-echo "---- Export 2020_0_0_0 and 2021_0_0_0"
-query "ALTER TABLE $rmt_table EXPORT PART '2020_0_0_0' TO TABLE $s3_table SETTINGS allow_experimental_export_merge_tree_part = 1"
-query "ALTER TABLE $rmt_table EXPORT PART '2021_0_0_0' TO TABLE $s3_table SETTINGS allow_experimental_export_merge_tree_part = 1"
+
+echo "---- Get actual part names and export them"
+part_2020=$(query "SELECT name FROM system.parts WHERE database = currentDatabase() AND table = '$rmt_table' AND partition = '2020' ORDER BY name LIMIT 1" | tr -d '\n')
+part_2021=$(query "SELECT name FROM system.parts WHERE database = currentDatabase() AND table = '$rmt_table' AND partition = '2021' ORDER BY name LIMIT 1" | tr -d '\n')
+
+query "ALTER TABLE $rmt_table EXPORT PART '$part_2020' TO TABLE $s3_table SETTINGS allow_experimental_export_merge_tree_part = 1"
+query "ALTER TABLE $rmt_table EXPORT PART '$part_2021' TO TABLE $s3_table SETTINGS allow_experimental_export_merge_tree_part = 1"
 
 echo "---- Both data parts should appear"
 query "SELECT DISTINCT ON (id) replaceRegexpAll(_path, '$s3_table', 's3_table_NAME'), id FROM $s3_table ORDER BY id"
 
 echo "---- Export the same part again, it should be idempotent"
-query "ALTER TABLE $rmt_table EXPORT PART '2020_0_0_0' TO TABLE $s3_table SETTINGS allow_experimental_export_merge_tree_part = 1"
+query "ALTER TABLE $rmt_table EXPORT PART '$part_2020' TO TABLE $s3_table SETTINGS allow_experimental_export_merge_tree_part = 1"
 
 query "SELECT DISTINCT ON (id) replaceRegexpAll(_path, '$s3_table', 's3_table_NAME'), id FROM $s3_table ORDER BY id"
 

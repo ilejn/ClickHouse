@@ -1,4 +1,4 @@
----- Export 2020_0_0_0 and 2021_0_0_0
+---- Get actual part names and export them
 ---- Both data parts should appear
 test/s3_table_NAME/year=2020/2020_0_0_0.parquet	1
 test/s3_table_NAME/year=2020/2020_0_0_0.parquet	2
