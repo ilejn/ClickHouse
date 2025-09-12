@@ -28,16 +28,16 @@ query "ALTER TABLE $rmt_table EXPORT PART '$part_2020' TO TABLE $s3_table SETTIN
 query "ALTER TABLE $rmt_table EXPORT PART '$part_2021' TO TABLE $s3_table SETTINGS allow_experimental_export_merge_tree_part = 1"
 
 echo "---- Both data parts should appear"
-query "SELECT DISTINCT ON (id) replaceRegexpAll(_path, '$s3_table', 's3_table_NAME'), id FROM $s3_table ORDER BY id"
+query "SELECT * FROM $s3_table ORDER BY id"
 
 echo "---- Export the same part again, it should be idempotent"
 query "ALTER TABLE $rmt_table EXPORT PART '$part_2020' TO TABLE $s3_table SETTINGS allow_experimental_export_merge_tree_part = 1"
 
-query "SELECT DISTINCT ON (id) replaceRegexpAll(_path, '$s3_table', 's3_table_NAME'), id FROM $s3_table ORDER BY id"
+query "SELECT * FROM $s3_table ORDER BY id"
 
 query "CREATE TABLE $rmt_table_roundtrip ENGINE = ReplicatedMergeTree('/clickhouse/tables/{database}/$rmt_table_roundtrip', 'replica1') PARTITION BY year ORDER BY tuple() AS SELECT * FROM $s3_table"
 
 echo "---- Data in roundtrip ReplicatedMergeTree table (should match s3_table)"
-query "SELECT DISTINCT ON (id) * FROM $rmt_table_roundtrip ORDER BY id"
+query "SELECT * FROM $rmt_table_roundtrip ORDER BY id"
 
 query "DROP TABLE IF EXISTS $rmt_table, $s3_table, $rmt_table_roundtrip"
