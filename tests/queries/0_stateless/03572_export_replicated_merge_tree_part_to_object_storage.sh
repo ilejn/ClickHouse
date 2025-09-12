@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Tags: replica, no-parallel
 
 CURDIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=../shell_config.sh
@@ -14,7 +15,7 @@ query() {
 
 query "DROP TABLE IF EXISTS $rmt_table, $s3_table, $rmt_table_roundtrip"
 
-query "CREATE TABLE $rmt_table (id UInt64, year UInt16) ENGINE = ReplicatedMergeTree('/clickhouse/tables/$CLICKHOUSE_TEST_UNIQUE_NAME/$rmt_table', 'replica1') PARTITION BY year ORDER BY tuple()"
+query "CREATE TABLE $rmt_table (id UInt64, year UInt16) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{database}/$rmt_table', 'replica1') PARTITION BY year ORDER BY tuple()"
 query "CREATE TABLE $s3_table (id UInt64, year UInt16) ENGINE = S3(s3_conn, filename='$s3_table', format=Parquet, partition_strategy='hive') PARTITION BY year"
 
 query "INSERT INTO $rmt_table VALUES (1, 2020), (2, 2020), (3, 2020), (4, 2021)"
@@ -34,7 +35,7 @@ query "ALTER TABLE $rmt_table EXPORT PART '$part_2020' TO TABLE $s3_table SETTIN
 
 query "SELECT DISTINCT ON (id) replaceRegexpAll(_path, '$s3_table', 's3_table_NAME'), id FROM $s3_table ORDER BY id"
 
-query "CREATE TABLE $rmt_table_roundtrip ENGINE = ReplicatedMergeTree('/clickhouse/tables/$CLICKHOUSE_TEST_UNIQUE_NAME/$rmt_table_roundtrip', 'replica1') PARTITION BY year ORDER BY tuple() AS SELECT * FROM $s3_table"
+query "CREATE TABLE $rmt_table_roundtrip ENGINE = ReplicatedMergeTree('/clickhouse/tables/{database}/$rmt_table_roundtrip', 'replica1') PARTITION BY year ORDER BY tuple() AS SELECT * FROM $s3_table"
 
 echo "---- Data in roundtrip ReplicatedMergeTree table (should match s3_table)"
 query "SELECT DISTINCT ON (id) * FROM $rmt_table_roundtrip ORDER BY id"
