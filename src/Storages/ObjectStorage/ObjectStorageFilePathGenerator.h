@@ -47,8 +47,23 @@ namespace DB
         using ObjectStorageFilePathGenerator::getPathForWrite;  // Bring base class overloads into scope
         std::string getPathForWrite(const std::string & partition_id, const std::string & file_name_override) const override
         {
+            std::string result;
+
+            result += raw_path;
+
+            if (raw_path.back() != '/')
+            {
+                result += "/";
+            }
+
+            /// Not adding '/' because buildExpressionHive() always adds a trailing '/'
+            result += partition_id;
+
             const auto file_name = file_name_override.empty() ? std::to_string(generateSnowflakeID()) : file_name_override;
-            return raw_path + "/" + partition_id + "/"  + file_name + "." + file_format;
+
+            result += file_name + "." + file_format;
+
+            return result;
         }
 
         std::string getPathForRead() const override
