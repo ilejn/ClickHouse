@@ -264,6 +264,8 @@ public:
 
     bool isMovePartitionToDiskOrVolumeAlter() const;
 
+    bool isExportPartAlter() const;
+
     bool isCommentAlter() const;
 
     String getID(char) const override;

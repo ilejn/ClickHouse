@@ -647,6 +647,11 @@ bool ASTAlterQuery::isMovePartitionToDiskOrVolumeAlter() const
     return false;
 }
 
+bool ASTAlterQuery::isExportPartAlter() const
+{
+    return isOneCommandTypeOnly(ASTAlterCommand::EXPORT_PART);
+}
+
 
 /** Get the text that identifies this element. */
 String ASTAlterQuery::getID(char delim) const
