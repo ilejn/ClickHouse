@@ -481,14 +481,18 @@ class PullRequestPushYamlGen:
         )
         res = template_1.format(*job_items)
 
-        # Use replace instead of format to avoid having to escape curly braces
-        res += AltinityWorkflowTemplates.ADDITIONAL_JOBS.replace(
-            "{ALL_JOBS}",
-            "\n".join(
-                "      - " + Utils.normalize_string(job.name)
-                for job in self.workflow_config.jobs
-            ),
-        ).replace("{REGRESSION_HASH}", AltinityWorkflowTemplates.REGRESSION_HASH)
+        if self.workflow_config.event in (
+            Workflow.Event.PULL_REQUEST,
+            Workflow.Event.PUSH,
+        ):
+            # Use replace instead of format to avoid having to escape curly braces
+            res += AltinityWorkflowTemplates.ADDITIONAL_JOBS.replace(
+                "{ALL_JOBS}",
+                "\n".join(
+                    "      - " + Utils.normalize_string(job.name)
+                    for job in self.workflow_config.jobs
+                ),
+            ).replace("{REGRESSION_HASH}", AltinityWorkflowTemplates.REGRESSION_HASH)
 
         return res
 
