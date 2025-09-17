@@ -4,12 +4,19 @@ name: ReleaseBranchCI
 
 on:
   workflow_dispatch:
+    inputs:
+      no_cache:
+        description: Run without cache
+        required: false
+        type: boolean
+        default: false
   push:
     branches: ['2[1-9].[1-9][0-9]', '2[1-9].[1-9]']
 
 env:
   # Force the stdout and stderr streams to be unbuffered
   PYTHONUNBUFFERED: 1
+  DISABLE_CI_CACHE: ${{ github.event.inputs.no_cache || '0' }}
   CHECKOUT_REF: ""
   DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
   CLICKHOUSE_TEST_STAT_URL: ${{ secrets.CLICKHOUSE_TEST_STAT_URL }}
