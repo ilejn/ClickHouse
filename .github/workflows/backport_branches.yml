@@ -4,6 +4,12 @@ name: BackportPR
 
 on:
   workflow_dispatch:
+    inputs:
+      no_cache:
+        description: Run without cache
+        required: false
+        type: boolean
+        default: false
   pull_request:
     branches: ['2[1-9].[1-9][0-9]', '2[1-9].[1-9]']
 
@@ -11,7 +17,7 @@ env:
   # Force the stdout and stderr streams to be unbuffered
   PYTHONUNBUFFERED: 1
   DISABLE_CI_MERGE_COMMIT: ${{ vars.DISABLE_CI_MERGE_COMMIT || '0' }}
-  DISABLE_CI_CACHE: ${{ vars.DISABLE_CI_CACHE || '0' }}
+  DISABLE_CI_CACHE: ${{ github.event.inputs.no_cache || '0' }}
   CHECKOUT_REF: ${{ vars.DISABLE_CI_MERGE_COMMIT == '1' && github.event.pull_request.head.sha || '' }}
   DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
   CLICKHOUSE_TEST_STAT_URL: ${{ secrets.CLICKHOUSE_TEST_STAT_URL }}

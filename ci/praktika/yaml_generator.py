@@ -36,6 +36,12 @@ name: {NAME}
 
 on:
   workflow_dispatch:
+    inputs:
+      no_cache:
+        description: Run without cache
+        required: false
+        type: boolean
+        default: false
   {EVENT}:
     branches: [{BRANCHES}]
 
@@ -55,8 +61,12 @@ permissions: write-all\
 """
         TEMPLATE_ENV_CHECKOUT_REF_PR = """\
   DISABLE_CI_MERGE_COMMIT: ${{{{ vars.DISABLE_CI_MERGE_COMMIT || '0' }}}}
-  DISABLE_CI_CACHE: ${{{{ vars.DISABLE_CI_CACHE || '0' }}}}
+  DISABLE_CI_CACHE: ${{{{ github.event.inputs.no_cache || '0' }}}}
   CHECKOUT_REF: ${{{{ vars.DISABLE_CI_MERGE_COMMIT == '1' && github.event.pull_request.head.sha || '' }}}}\
+"""
+        TEMPLATE_ENV_CHECKOUT_REF_PUSH = """\
+  DISABLE_CI_CACHE: ${{{{ github.event.inputs.no_cache || '0' }}}}
+  CHECKOUT_REF: ""\
 """
         TEMPLATE_ENV_CHECKOUT_REF_DEFAULT = """\
   CHECKOUT_REF: ""\
@@ -431,6 +441,10 @@ class PullRequestPushYamlGen:
             if self.workflow_config.event in (Workflow.Event.PULL_REQUEST,):
                 ENV_CHECKOUT_REFERENCE = (
                     YamlGenerator.Templates.TEMPLATE_ENV_CHECKOUT_REF_PR
+                )
+            elif self.workflow_config.event in (Workflow.Event.PUSH,):
+                ENV_CHECKOUT_REFERENCE = (
+                    YamlGenerator.Templates.TEMPLATE_ENV_CHECKOUT_REF_PUSH
                 )
             else:
                 ENV_CHECKOUT_REFERENCE = (
