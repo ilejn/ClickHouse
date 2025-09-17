@@ -397,7 +397,7 @@ class ArtifactNames:
     FUZZERS = "FUZZERS"
     FUZZERS_CORPUS = "FUZZERS_CORPUS"
 
-    BUILD_REPORT_AMD_RELEASE = "build_report_package_release.json"
+    BUILD_REPORT_AMD_RELEASE = "build_report_package_release"
 
     PERF_REPORTS_AMD_1 = "PERF_REPORTS_AMD_1"
     PERF_REPORTS_AMD_2 = "PERF_REPORTS_AMD_2"
