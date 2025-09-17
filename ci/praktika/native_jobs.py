@@ -360,10 +360,7 @@ def _config_workflow(workflow: Workflow.Config, job_name) -> Result:
             )
         )
 
-    pr_allows_cache = (
-        "[x] <!---no_ci_cache" not in Info().pr_body
-        or os.environ.get("DISABLE_CI_CACHE", "0") not in ("1", "true")
-    )
+    pr_allows_cache = "[x] <!---no_ci_cache" not in Info().pr_body
     if (
         workflow.enable_job_filtering_by_changes
         and results[-1].is_ok()
