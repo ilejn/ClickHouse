@@ -75,7 +75,7 @@ bool authenticateUserByHTTP(
 
     /// User name and password can be passed using HTTP Basic auth or query parameters
     /// (both methods are insecure).
-    bool has_http_credentials = request.hasCredentials() && request.get("Authorization") != "never";
+    bool has_http_credentials = request.hasCredentials() && request.get("Authorization") != "never" && !Poco::toLower(request.get("Authorization", "")).starts_with(BEARER_PREFIX);
     bool has_credentials_in_query_params = params.has("user") || params.has("password");
 
     std::string jwt_token = request.get("X-ClickHouse-JWT-Token", request.get("Authorization", (params.has("token") ? BEARER_PREFIX + params.get("token") : "")));

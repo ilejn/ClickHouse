@@ -330,11 +330,9 @@ void ExternalAuthenticators::setConfiguration(const Poco::Util::AbstractConfigur
     std::size_t ldap_servers_key_count = 0;
     std::size_t kerberos_keys_count = 0;
     std::size_t http_auth_server_keys_count = 0;
-    std::size_t jwt_validators_count = 0;
     std::size_t token_processors_count = 0;
 
     const String http_auth_servers_config = "http_authentication_servers";
-    const String jwt_validators_config = "jwt_validators";
     const String token_processors_config = "token_processors";
 
     for (auto key : all_keys)
@@ -348,7 +346,6 @@ void ExternalAuthenticators::setConfiguration(const Poco::Util::AbstractConfigur
         ldap_servers_key_count += (key == "ldap_servers");
         kerberos_keys_count += (key == "kerberos");
         http_auth_server_keys_count += (key == http_auth_servers_config);
-        jwt_validators_count += (key == jwt_validators_config);
         token_processors_count += (key == token_processors_config);
     }
 
@@ -360,9 +357,6 @@ void ExternalAuthenticators::setConfiguration(const Poco::Util::AbstractConfigur
 
     if (http_auth_server_keys_count > 1)
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Multiple http_authentication_servers sections are not allowed");
-
-    if (jwt_validators_count > 1)
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Multiple {} sections are not allowed", jwt_validators_config);
 
     if (token_processors_count > 1)
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Multiple {} sections are not allowed", token_processors_config);
