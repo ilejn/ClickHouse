@@ -624,8 +624,10 @@ bool ExternalAuthenticators::checkCredentialsAgainstProcessor(const ITokenProces
         }
 
         LOG_DEBUG(getLogger("AccessTokenAuthentication"), "Authenticated user {} with access token by {}", credentials.getUserName(), processor.getProcessorName());
+        /// I guess that logging access token is not perfect for security reasons. One the other hand it has limited lifetime ...
 
         // CHeck if a cache entry for the same user but with another token exists -- old cache entry is considered outdated and removed
+        /// protect access to the cache ?
         auto old_token_iter = username_to_access_token_cache.find(cache_entry.user_name);
         if (old_token_iter != username_to_access_token_cache.end())
         {
