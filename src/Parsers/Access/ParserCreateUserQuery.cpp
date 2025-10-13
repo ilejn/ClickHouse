@@ -80,7 +80,7 @@ namespace
             bool expect_ssl_cert_subjects = false;
             bool expect_public_ssh_key = false;
             bool expect_http_auth_server = false;
-            bool expect_claims = false;   // NOLINT
+            bool expect_claims = false;   // NOLINT  ??
 
             auto parse_non_password_based_type = [&](auto check_type)
             {
@@ -226,7 +226,7 @@ namespace
                         return false;
                 }
             }
-            else if (expect_claims)
+            else if (expect_claims)  /// always false ?
             {
                 if (ParserKeyword{Keyword::CLAIMS}.ignore(pos, expected))
                 {

@@ -41,6 +41,7 @@ public:
     bool exists(const UUID & id) const override;
 
 private: // IAccessStorage implementations.
+         //    ^^ Unclear comment. Move to the next 'protected'?
 
     mutable std::recursive_mutex mutex; // Note: Reentrance possible by internal role lookup via access_control
     AccessControl & access_control;
@@ -56,10 +57,11 @@ private: // IAccessStorage implementations.
     mutable std::map<String, std::set<String>> roles_per_users; // user name -> role names (...that should be granted to it; may but don't have to include common roles)
     mutable std::map<UUID, String> granted_role_names;          // (currently granted) role id -> its name
     mutable std::map<String, UUID> granted_role_ids;            // (currently granted) role name -> its id
-    scope_guard role_change_subscription;
+    scope_guard role_change_subscription;    /// if callback this->processRoleChange is called during destruction
+                                             ///  when memory_storage is already deleted, we are in trouble
+                                             /// should be the latest member
     mutable MemoryAccessStorage memory_storage;
 
-//    void setConfiguration();
     void processRoleChange(const UUID & id, const AccessEntityPtr & entity);
 
     bool areTokenCredentialsValidNoLock(const User & user, const Credentials & credentials, const ExternalAuthenticators & external_authenticators) const;
@@ -68,7 +70,7 @@ private: // IAccessStorage implementations.
     void assignRolesNoLock(User & user, const std::set<String> & external_roles, std::size_t external_roles_hash) const;
     void updateAssignedRolesNoLock(const UUID & id, const String & user_name, const std::set<String> & external_roles) const;
 
-protected:
+protected:  /// Why 'protected'? Do we plan child classes?
     std::optional<UUID> findImpl(AccessEntityType type, const String & name) const override;
     std::vector<UUID> findAllImpl(AccessEntityType type) const override;
     AccessEntityPtr readImpl(const UUID & id, bool throw_if_not_exists) const override;

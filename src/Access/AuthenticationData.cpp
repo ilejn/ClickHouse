@@ -661,6 +661,7 @@ AuthenticationData AuthenticationData::fromAST(const ASTAuthenticationData & que
                 throw Exception(ErrorCodes::BAD_ARGUMENTS, "Bad JWT claims: is not an object");
             auth_data.setJWTClaims(value);
         }
+        /// What if empty (and why it is possible?)
     }
     else
     {

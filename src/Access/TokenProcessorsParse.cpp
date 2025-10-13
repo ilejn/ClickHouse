@@ -16,7 +16,7 @@ std::unique_ptr<DB::ITokenProcessor> ITokenProcessor::parseTokenProcessor(
         const String & processor_name)
 {
     if (!config.hasProperty(prefix + ".type"))
-        throw DB::Exception(ErrorCodes::INVALID_CONFIG_PARAMETER, "'type' parameter shall be specified in token_processor configuration.'");
+        throw DB::Exception(ErrorCodes::INVALID_CONFIG_PARAMETER, "'type' parameter must be specified in token_processor configuration.'");
 
     auto provider_type = Poco::toLower(config.getString(prefix + ".type"));
 
@@ -40,7 +40,7 @@ std::unique_ptr<DB::ITokenProcessor> ITokenProcessor::parseTokenProcessor(
         bool externally_configured = config.hasProperty(prefix + ".configuration_endpoint") && !config.hasProperty(prefix + ".jwks_uri");
         bool locally_configured = config.hasProperty(prefix + ".userinfo_endpoint") && config.hasProperty(prefix + ".token_introspection_endpoint");
 
-        if (externally_configured && ! locally_configured)
+        if (externally_configured && !locally_configured)
         {
             return std::make_unique<OpenIdTokenProcessor>(processor_name, token_cache_lifetime, username_claim, groups_claim,
                                                           config.getString(prefix + ".openid_config_endpoint"),
@@ -96,7 +96,7 @@ std::unique_ptr<DB::ITokenProcessor> ITokenProcessor::parseTokenProcessor(
         {
             return std::make_unique<JwksJwtProcessor>(processor_name, token_cache_lifetime, username_claim, groups_claim,
                                                       config.getString(prefix + ".claims", ""),
-                                                      config.getUInt64(prefix + ".verifier_leeway", 0),
+                                                      config.getUInt64(prefix + ".verifier_leeway", 0), /// is 0 a good default? '60' is advertized in doc
                                                       config.getString(prefix + ".jwks_uri"),
                                                       config.getUInt(prefix + ".jwks_cache_lifetime", 3600));
         }

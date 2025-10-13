@@ -611,6 +611,8 @@ bool ExternalAuthenticators::checkCredentialsAgainstProcessor(const ITokenProces
         {
             if (credentials.getExpiresAt().value() < default_expiration_ts)
                 cache_entry.expires_at = credentials.getExpiresAt().value();
+            /// May be we should issue a warning if the token is already expired?
+            /// Shouldn't we take leeway into account?
         }
         else
         {
@@ -626,12 +628,13 @@ bool ExternalAuthenticators::checkCredentialsAgainstProcessor(const ITokenProces
         if (old_token_iter != username_to_access_token_cache.end())
         {
             access_token_to_username_cache.erase(old_token_iter->second);
-            username_to_access_token_cache.erase(old_token_iter);
+            username_to_access_token_cache.erase(old_token_iter);   /// redundant ???
+            /// May be worth logging?
         }
 
-        access_token_to_username_cache[credentials.getToken()] = cache_entry;
-        username_to_access_token_cache[cache_entry.user_name] = credentials.getToken();
-        LOG_TRACE(getLogger("AccessTokenAuthentication"), "Cache entry for user {} added", cache_entry.user_name);
+        LOG_TRACE(getLogger("AccessTokenAuthentication"), "Adding cache entry for user {}", cache_entry.user_name);
+        access_token_to_username_cache[credentials.getToken()] = std::move(cache_entry);
+        username_to_access_token_cache[cache_entry.user_name] = std::move(credentials.getToken());
 
         return true;
     }

@@ -8,7 +8,7 @@ import SelfManaged from '@site/docs/en/_snippets/_self_managed_only_no_roadmap.m
 
 ClickHouse users can be authenticated using tokens. This works in two ways:
 
-- Existing users (defined in `users.xml` or in local access control paths) can be authenticated with a token if this user can be `IDENTIFIED WITH jwt`. 
+- An existing user (defined in `users.xml` or in local access control paths) can be authenticated with a token if this user can be `IDENTIFIED WITH jwt`.
 - Use the information from the token or from an external Identity Provider (IdP) as a source of user definitions and allow locally undefined users to be authenticated with a valid token.
 
 Although not all tokens are JWTs, under the hood both ways are treated as the same authentication method to maintain better compatibility.
@@ -16,26 +16,26 @@ Although not all tokens are JWTs, under the hood both ways are treated as the sa
 # Token Processors
 
 ## Configuration
-To use token-based authentication, add `token_processors` section to `config.xml` and define at least one token processor in it. 
+To use token-based authentication, add `token_processors` section to `config.xml` and define at least one token processor in it.
 Its contents are different for different token processor types.
 
 **Common parameters**
-- `type` -- type of token processor. Supported values: "JWT", "Azure", "OpenID". Mandatory. Case-insensitive.
+- `type` -- type of token processor. Supported values: "JWT", "Azure", "Google", "OpenID". Mandatory. Case-insensitive.
 - `token_cache_lifetime` -- maximum lifetime of cached token (in seconds). Optional, default: 3600.
 - `username_claim` -- name of claim (field) that will be treated as ClickHouse username. Optional, default: "sub".
-- `groups_claim` -- Name of claim (field) that contains list of groups user belongs to. This claim will be looked up in the token itself (in case token is a valid JWT, e.g. in Keycloak) or in response from `/userinfo`. Optional, default: "groups".
+- `groups_claim` -- name of claim (field) that contains list of groups user belongs to. This claim will be looked up in the token itself (in case token is a valid JWT, e.g. in Keycloak) or in response from `/userinfo`. Optional, default: "groups".
 
-For each type, there are additional specific parameters. 
-If some parameters that are not required for current processor type are specified, they are ignored. 
+For each type, there are additional specific parameters.
+If some parameters that are not required for current processor type are specified, they are ignored. (Is not it too error-prone?)
 If there are conflicting parameters (e.g `algo` is specified together with `jwks_uri`), an exception will be thrown.
 
 ## JWT (JSON Web Token)
 
-JWT itself is a source of information about user. 
+JWT itself is a source of information about user.
 It is decoded locally and its integrity is verified using either static key or JWKS (JSON Web Key Set), either local or remote.
 
 `algo`, `static_jwks`/`static_jwks_file` and `jwks_uri` are defining different JWT processing workflows, and they cannot be specified together.
-### JWT with static key:
+### JWT with static key
 ```xml
 <clickhouse>
     <token_processors>
@@ -48,7 +48,7 @@ It is decoded locally and its integrity is verified using either static key or J
 </clickhouse>
 ```
 **Parameters:**
-- `algo` - Algorithm for validate signature. Mandatory. Supported values:
+- `algo` - Algorithm to validate signature. Mandatory. Supported values:
 
   | HMAC  | RSA   | ECDSA  | PSS   | EdDSA   |
     |-------| ----- | ------ | ----- | ------- |
@@ -78,8 +78,7 @@ It is decoded locally and its integrity is verified using either static key or J
 ```
 
 **Parameters:**
-
-- `static_jwks` - content of JWKS in JSON
+- `static_jwks` - content of JWKS in JSON format
 - `static_jwks_file` - path to a file with JWKS
 - `claims` - A string containing a JSON object that should be contained in the token payload. If this parameter is defined, token without corresponding payload will be considered invalid. Optional.
 - `verifier_leeway` - Clock skew tolerance (seconds). Useful for handling small differences in system clocks between ClickHouse and the token issuer. Optional.
@@ -108,14 +107,16 @@ Only RS* family algorithms are supported!
 **Parameters:**
 
 - `uri` - JWKS endpoint. Mandatory.
-- `jwks_cache_lifetime` - Period for resend request for refreshing JWKS. Optional, default: 3600.
+- `jwks_cache_lifetime` - Period to resend request for refreshing JWKS. Optional, default: 3600.
 - `claims` - A string containing a JSON object that should be contained in the token payload. If this parameter is defined, token without corresponding payload will be considered invalid. Optional.
 - `verifier_leeway` - Clock skew tolerance (seconds). Useful for handling small differences in system clocks between ClickHouse and the token issuer. Optional.
+
+?? Is not it better (less error-prone) to have dufferent 'type' for static JWT, JWT with static and with remote JWKS
 
 
 ## Processors with external providers
 
-Some tokens cannot be decoded and validated locally. External service is needed in this case. "Azure" and "OpenID" (a generic type) are supported now.
+Some tokens cannot be decoded and validated locally. External service is needed in this case. "Azure", "Google" and "OpenID" (a generic type) are supported now.
 
 ### Azure
 ```xml
@@ -124,6 +125,19 @@ Some tokens cannot be decoded and validated locally. External service is needed 
         <azure_processor>
           <type>azure</type>
         </azure_processor>
+    </token_processors>
+</clickhouse>
+```
+
+No additional parameters are required.
+
+### Google
+```xml
+<clickhouse>
+    <token_processors>
+        <google_processor>
+          <type>google</type>
+        </google_processor>
     </token_processors>
 </clickhouse>
 ```
@@ -168,9 +182,10 @@ Either `configuration_endpoint` or both `userinfo_endpoint` and `token_introspec
 Sometimes a token is a valid JWT. In that case token will be decoded and validated locally if configuration endpoint returns JWKS URI (or `jwks_uri` is specified alongside `userinfo_endpoint` and `token_introspection_endpoint`).
 
 ### Tokens cache
-To reduce number of requests to IdP, tokens are cached internally for no longer then `token_cache_lifetime` seconds.
+To reduce number of requests to IdP, tokens are cached internally.
 If token expires sooner than `token_cache_lifetime`, then cache entry for this token will only be valid while token is valid.
-If token lifetime is longer than `token_cache_lifetime`, cache entry for this token will be valid for `token_cache_lifetime`. 
+If token lifetime is longer than `token_cache_lifetime`, cache entry for this token will be valid for `token_cache_lifetime`.
+?? minimum of `token_cache_lifetime` configuration parameter and token lifetime
 
 ## Enabling token authentication for a user in `users.xml` {#enabling-jwt-auth-in-users-xml}
 
@@ -190,7 +205,7 @@ Example (goes into `users.xml`):
 </clickhouse>
 ```
 
-Here, the JWT payload must contain `["view-profile"]` on path `resource_access.account.roles`, otherwise authentication will not succeed even with a valid JWT. 
+Here, the JWT payload must contain `["view-profile"]` on path `resource_access.account.roles`, otherwise authentication will not succeed even with a valid JWT.
 
 :::note
 If `claims` is defined, this user will not be able to authenticate using opaque tokens, so, only JWT-based authentication will be available.
@@ -210,6 +225,8 @@ If `claims` is defined, this user will not be able to authenticate using opaque 
 
 :::note
 JWT authentication cannot be used together with any other authentication method. The presence of any other sections like `password` alongside `jwt` will force ClickHouse to shut down.
+?? Is it true for openid and others
+?? Is it true for a particular user, or for entire config scope
 :::
 
 ## Enabling token authentication using SQL {#enabling-jwt-auth-using-sql}
@@ -219,11 +236,11 @@ Users with "JWT" authentication type cannot be created using SQL now.
 ## Identity Provider as an External User Directory {#idp-external-user-directory}
 
 If there is no suitable user pre-defined in ClickHouse, authentication is still possible: Identity Provider can be used as source of user information.
-To allow this, add `token` section to the `users_directories` section of the `config.xml` file. 
+To allow this, add `token` section to the `users_directories` section of the `config.xml` file.
 
 At each login attempt, ClickHouse tries to find the user definition locally and authenticate it as usual.
-If the user is not defined, ClickHouse will treat the user as externally defined and will try to validate the token and get user information from the specified processor.
-If validated successfully, the user will be considered existing and authenticated. The user will be assigned roles from the list specified in the `roles` section. 
+If a token is provided, but the user is not defined, ClickHouse will treat the user as externally defined and will try to validate the token and get user information from the specified processor.
+If validated successfully, the user will be considered existing and authenticated. The user will be assigned roles from the list specified in the `roles` section ??.
 All this implies that the SQL-driven [Access Control and Account Management](/docs/en/guides/sre/user-management/index.md#access-control) is enabled and roles are created using the [CREATE ROLE](/docs/en/sql-reference/statements/create/role.md#create-role-statement) statement.
 
 **Example**
@@ -232,7 +249,7 @@ All this implies that the SQL-driven [Access Control and Account Management](/do
 <clickhouse>
     <user_directories>
         <token>
-            <processor>processor_name</processor>
+            <processor>token_processor</processor>
             <common_roles>
                 <token_test_role_1 />
             </common_roles>

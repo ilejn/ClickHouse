@@ -196,6 +196,10 @@ StaticKeyJwtProcessor::StaticKeyJwtProcessor(const String & processor_name_,
         algo == "es256k"  ||
         algo == "es384"   ||
         algo == "es512"   )
+      /// consider
+      ///   if (std::unordered_set{"ps256", "ps384", ... }.contains(algo))
+      /// a bit too pythonic, but we don't care about performance here
+
     {
         if (public_key.empty())
             throw Exception(ErrorCodes::INVALID_CONFIG_PARAMETER, "{}: Invalid token processor definition, `public_key` parameter required for {}", processor_name, algo);
@@ -209,6 +213,19 @@ StaticKeyJwtProcessor::StaticKeyJwtProcessor(const String & processor_name_,
     }
     else if (algo != "none")
         throw DB::Exception(ErrorCodes::INVALID_CONFIG_PARAMETER, "{}: Invalid token processor definition, unknown algorithm {}", processor_name, algo);
+
+    /// Looks terrifying, but I cannot suggest any real improvements
+    /// The only what comes to my mind is
+    //
+    // std::unordered_map<String, std::function<void()>> algo_map = {
+    //  {"none", [&]() { return jwt::algorithm::none(); }},
+    //  {"ps256", [&]() { return jwt::algorithm::ps256(public_key, private_key, public_key_password, private_key_password); }},
+    //  {"ps384", [&]() { return jwt::algorithm::ps384(public_key, private_key, public_key_password, private_key_password); }},
+    //     auto it = algo_map.find(algo);
+    // if (it != algo_map.end()) {
+    //     verifier = verifier.allow_algorithm(it->second());
+    // } else {
+
 
     if (algo == "none")
         verifier = verifier.allow_algorithm(jwt::algorithm::none());
@@ -286,7 +303,7 @@ bool StaticKeyJwtProcessor::resolveAndValidate(const TokenCredentials & credenti
     {
         auto decoded_jwt = jwt::decode(credentials.getToken());
         verifier.verify(decoded_jwt);
-        
+
         if (!check_claims(claims, decoded_jwt.get_payload_json()))
             return false;
 
@@ -295,14 +312,14 @@ bool StaticKeyJwtProcessor::resolveAndValidate(const TokenCredentials & credenti
             LOG_ERROR(getLogger("TokenAuthentication"), "{}: Specified username_claim {} not found in token", processor_name, username_claim);
             return false;
         }
-            
+
         const_cast<TokenCredentials &>(credentials).setUserName(decoded_jwt.get_payload_claim(username_claim).as_string());
 
         if (decoded_jwt.has_payload_claim(groups_claim))
             const_cast<TokenCredentials &>(credentials).setGroups(parseGroupsFromJsonArray(decoded_jwt.get_payload_claim(groups_claim).as_array()));
         else
             LOG_TRACE(getLogger("TokenAuthentication"), "{}: Specified groups_claim {} not found in token, no external roles will be mapped", processor_name, groups_claim);
-        
+
         return true;
     }
     catch (const std::exception & ex)
@@ -322,7 +339,7 @@ bool JwksJwtProcessor::resolveAndValidate(const TokenCredentials & credentials) 
         return false;
     }
 
-    auto jwk = provider->getJWKS().get_jwk(decoded_jwt.get_key_id());
+    auto jwk = provider->getJWKS().get_jwk(decoded_jwt.get_key_id()); /// is not exception possible?
     auto username = decoded_jwt.get_payload_claim(username_claim).as_string();
 
     if (!decoded_jwt.has_algorithm())
@@ -345,6 +362,7 @@ bool JwksJwtProcessor::resolveAndValidate(const TokenCredentials & credentials) 
             LOG_TRACE(getLogger("TokenAuthentication"), "{}: Verifying {} with 'x5c' key", processor_name, username);
             public_key = jwt::helper::convert_base64_der_to_pem(x5c);
         }
+        ///  else ?  (assuming it is possible that e.g. issues is empty, but exception not thrown
     }
     catch (const jwt::error::claim_not_present_exception &)
     {
@@ -362,7 +380,7 @@ bool JwksJwtProcessor::resolveAndValidate(const TokenCredentials & credentials) 
         LOG_TRACE(getLogger("TokenAuthentication"), "{}: `issuer` or `x5c` not present, verifying {} with RSA components", processor_name, username);
         const auto modulus = jwk.get_jwk_claim("n").as_string();
         const auto exponent = jwk.get_jwk_claim("e").as_string();
-        public_key = jwt::helper::create_public_key_from_rsa_components(modulus, exponent);
+        public_key = jwt::helper::create_public_key_from_rsa_components(modulus, exponent);  /// it seems it throws
     }
 
     if (jwk.has_algorithm() && Poco::toLower(jwk.get_algorithm()) != algo)

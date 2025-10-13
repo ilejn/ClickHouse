@@ -299,6 +299,7 @@ bool Authentication::areCredentialsValid(
     SettingsChanges & settings)
 {
     if (!typeid_cast<const TokenCredentials *>(&credentials) && !credentials.isReady())
+        // Why? Temporary outage? Delay?
         return false;
 
     if (const auto * gss_acceptor_context = typeid_cast<const GSSAcceptorContext *>(&credentials))
@@ -343,6 +344,7 @@ bool Authentication::areCredentialsValid(
     if (const auto * token_credentials = typeid_cast<const TokenCredentials *>(&credentials))
     {
         if (authentication_method.getType() != AuthenticationType::JWT)
+            // Other types?
             return false;
 
         return external_authenticators.checkTokenCredentials(*token_credentials);

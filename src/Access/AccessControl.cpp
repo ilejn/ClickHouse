@@ -495,6 +495,7 @@ void AccessControl::addStoragesFromUserDirectoriesConfig(
         {
             if (has_token_storage)
                 throw Exception(ErrorCodes::INVALID_CONFIG_PARAMETER, "Only one `token` section can be defined.");
+                /// why?
 
             addTokenStorage(name, config, prefix);
             has_token_storage = true;
