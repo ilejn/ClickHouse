@@ -41,9 +41,13 @@ protected:
     std::set<String> parseGroupsFromJsonArray(picojson::array groups_array) const;
 };
 
+/// Add some comments
+
 class StaticKeyJwtProcessor : public ITokenProcessor
 {
 public:
+    ///  Not sure why 'explicit' is needed,
+    ///     but lets use it for all processors.
     explicit StaticKeyJwtProcessor(const String & processor_name_,
                                    UInt64 token_cache_lifetime_,
                                    const String & username_claim_,

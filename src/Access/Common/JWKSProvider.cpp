@@ -21,40 +21,48 @@ jwt::jwks<jwt::traits::kazuho_picojson> JWKSClient::getJWKS()
     auto now = std::chrono::high_resolution_clock::now();
     auto diff = std::chrono::duration<double>(now - last_request_send).count();
 
+    /// Indentation breaks CH code style
     if (diff < refresh_timeout) {
         jwt::jwks <jwt::traits::kazuho_picojson> result(cached_jwks);
         return result;
+        /// May be just return cached_jwks ? Why 'result' is needed?
     }
 
     Poco::Net::HTTPResponse response;
-    std::ostringstream responseString;
+    std::ostringstream response_string;  // discouraged. need STYLE_CHECK_ALLOW ...  seems misleading (it is a stream)
 
     Poco::Net::HTTPRequest request{Poco::Net::HTTPRequest::HTTP_GET, jwks_uri.getPathAndQuery()};
 
     if (jwks_uri.getScheme() == "https") {
         Poco::Net::HTTPSClientSession session = Poco::Net::HTTPSClientSession(jwks_uri.getHost(), jwks_uri.getPort());
         session.sendRequest(request);
-        std::istream & responseStream = session.receiveResponse(response);
-        if (response.getStatus() != Poco::Net::HTTPResponse::HTTP_OK || !responseStream)
+        std::istream & response_stream = session.receiveResponse(response);
+        if (response.getStatus() != Poco::Net::HTTPResponse::HTTP_OK || !response_stream)
             throw Exception(ErrorCodes::AUTHENTICATION_FAILED, "Failed to get user info by access token, code: {}, reason: {}", response.getStatus(), response.getReason());
-        Poco::StreamCopier::copyStream(responseStream, responseString);
+        Poco::StreamCopier::copyStream(response_stream, response_string);
+        /// StreamCopier::copyToString should be Ok
     } else {
         Poco::Net::HTTPClientSession session = Poco::Net::HTTPClientSession(jwks_uri.getHost(), jwks_uri.getPort());
+        /// only 'session' is different.   HTTPSClientSession is a child of HTTPClientSession
+
         session.sendRequest(request);
-        std::istream & responseStream = session.receiveResponse(response);
-        if (response.getStatus() != Poco::Net::HTTPResponse::HTTP_OK || !responseStream)
+        std::istream & response_stream = session.receiveResponse(response);
+        if (response.getStatus() != Poco::Net::HTTPResponse::HTTP_OK || !response_stream)
             throw Exception(ErrorCodes::AUTHENTICATION_FAILED, "Failed to get user info by access token, code: {}, reason: {}", response.getStatus(), response.getReason());
-        Poco::StreamCopier::copyStream(responseStream, responseString);
+        Poco::StreamCopier::copyStream(response_stream, response_string);
     }
 
     last_request_send = std::chrono::high_resolution_clock::now();
+    /// What if parsing failed?
+    ///   We assume that cached_jwks is valid
 
     jwt::jwks<jwt::traits::kazuho_picojson> parsed_jwks;
 
     try {
-        parsed_jwks = jwt::parse_jwks(responseString.str());
+        parsed_jwks = jwt::parse_jwks(response_string.str());
     }
     catch (const Exception & e) {
+        ///   jwt::parse_jwks throws invalid_json_exception which is not from Poco hierarchy
         throw Exception(ErrorCodes::AUTHENTICATION_FAILED, "Failed to parse JWKS: {}", e.what());
     }
 
@@ -62,7 +70,7 @@ jwt::jwks<jwt::traits::kazuho_picojson> JWKSClient::getJWKS()
     return cached_jwks;
 }
 
-StaticJWKSParams::StaticJWKSParams(const std::string &static_jwks_, const std::string &static_jwks_file_)
+StaticJWKSParams::StaticJWKSParams(const std::string & static_jwks_, const std::string & static_jwks_file_)
 {
     if (static_jwks_.empty() && static_jwks_file_.empty())
         throw Exception(ErrorCodes::INVALID_CONFIG_PARAMETER,
@@ -81,8 +89,11 @@ StaticJWKS::StaticJWKS(const StaticJWKSParams &params)
     if (!params.static_jwks_file.empty()) {
         std::ifstream ifs(params.static_jwks_file);
         content = String((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
+        /// May be StreamCopier::copyToString (for the sake of unification) ?
     }
     auto keys = jwt::parse_jwks(content);
+    // try/catch ?
+
     jwks = std::move(keys);
 }
 

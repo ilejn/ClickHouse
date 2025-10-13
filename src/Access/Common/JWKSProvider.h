@@ -23,7 +23,7 @@ public:
 class JWKSClient : public IJWKSProvider
 {
 public:
-    explicit JWKSClient(const String & uri, const size_t refresh_ms_): refresh_timeout(refresh_ms_), jwks_uri(uri) {}
+    explicit JWKSClient(const String & uri, const size_t refresh_timeout_): refresh_timeout(refresh_timeout_), jwks_uri(uri) {}
 
     ~JWKSClient() override = default;
     JWKSClient(const JWKSClient &) = delete;
@@ -38,6 +38,8 @@ private:
     Poco::URI jwks_uri;
 
     std::shared_mutex mutex;
+    /// the size of jwt::jwks is not limited (if I am not missing something)
+    ///   probably not a problem
     jwt::jwks<jwt::traits::kazuho_picojson> cached_jwks;
     std::chrono::time_point<std::chrono::high_resolution_clock> last_request_send;
 };

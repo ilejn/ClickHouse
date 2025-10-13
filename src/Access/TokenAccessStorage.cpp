@@ -20,7 +20,7 @@ namespace ErrorCodes
 
 TokenAccessStorage::TokenAccessStorage(const String & storage_name_, AccessControl & access_control_, const Poco::Util::AbstractConfiguration & config_, const String & prefix_)
         : IAccessStorage(storage_name_), access_control(access_control_), config(config_), prefix(prefix_),
-        memory_storage(storage_name_, access_control.getChangesNotifier(), false)
+          memory_storage(storage_name_ /* can two storages with same name be confusing ? */, access_control.getChangesNotifier(), false)
 {
     std::lock_guard lock(mutex);
 
@@ -29,7 +29,7 @@ TokenAccessStorage::TokenAccessStorage(const String & storage_name_, AccessContr
     if (config.has(prefix_str + "roles_filter"))
         roles_filter.emplace(config.getString(prefix_str + "roles_filter"));
 
-    provider_name = config.getString(prefix_str + "processor");
+    provider_name = config.getString(prefix_str + "processor", "");  // default value? Are we prepared to NotFoundException ?
     if (provider_name.empty())
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "'processor' must be specified for Token user directory");
 
@@ -236,7 +236,7 @@ void TokenAccessStorage::assignRolesNoLock(User & user, const std::set<String> &
             if (const auto role_id = access_control.find<Role>(role_name))
             {
                 granted_role_names.insert_or_assign(*role_id, role_name);
-                it = granted_role_ids.insert_or_assign(role_name, *role_id).first;
+                it = granted_role_ids.insert({role_name, *role_id}).first;
             }
         }
 
@@ -312,6 +312,8 @@ void TokenAccessStorage::updateAssignedRolesNoLock(const UUID & id, const String
 {
     // No need to include common_role_names in this hash each time, since they don't change.
     const auto external_roles_hash = boost::hash<std::set<String>>{}(external_roles);
+    /// boost::hash is not a cryptographis cache, there is a collision possibility
+    ///   Probably we should ignore this
 
     // Map and grant the roles from scratch only if the list of external role has changed.
     const auto it = external_role_hashes.find(user_name);
