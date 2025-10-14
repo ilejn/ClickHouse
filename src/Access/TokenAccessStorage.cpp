@@ -236,7 +236,11 @@ void TokenAccessStorage::assignRolesNoLock(User & user, const std::set<String> &
             if (const auto role_id = access_control.find<Role>(role_name))
             {
                 granted_role_names.insert_or_assign(*role_id, role_name);
+<<<<<<< HEAD
                 it = granted_role_ids.insert({role_name, *role_id}).first;
+=======
+                it = granted_role_ids.insert_or_assign(role_name, *role_id).first;
+>>>>>>> altinity/oauth-antalya-25.6
             }
         }
 

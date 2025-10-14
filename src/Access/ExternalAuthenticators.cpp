@@ -330,9 +330,11 @@ void ExternalAuthenticators::setConfiguration(const Poco::Util::AbstractConfigur
     std::size_t ldap_servers_key_count = 0;
     std::size_t kerberos_keys_count = 0;
     std::size_t http_auth_server_keys_count = 0;
+    std::size_t jwt_validators_count = 0;
     std::size_t token_processors_count = 0;
 
     const String http_auth_servers_config = "http_authentication_servers";
+    const String jwt_validators_config = "jwt_validators";
     const String token_processors_config = "token_processors";
 
     for (auto key : all_keys)
@@ -346,6 +348,7 @@ void ExternalAuthenticators::setConfiguration(const Poco::Util::AbstractConfigur
         ldap_servers_key_count += (key == "ldap_servers");
         kerberos_keys_count += (key == "kerberos");
         http_auth_server_keys_count += (key == http_auth_servers_config);
+        jwt_validators_count += (key == jwt_validators_config);
         token_processors_count += (key == token_processors_config);
     }
 
@@ -357,6 +360,9 @@ void ExternalAuthenticators::setConfiguration(const Poco::Util::AbstractConfigur
 
     if (http_auth_server_keys_count > 1)
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Multiple http_authentication_servers sections are not allowed");
+
+    if (jwt_validators_count > 1)
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Multiple {} sections are not allowed", jwt_validators_config);
 
     if (token_processors_count > 1)
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Multiple {} sections are not allowed", token_processors_config);
@@ -624,6 +630,7 @@ bool ExternalAuthenticators::checkCredentialsAgainstProcessor(const ITokenProces
 
         // CHeck if a cache entry for the same user but with another token exists -- old cache entry is considered outdated and removed
         /// protect access to the cache ?
+
         auto old_token_iter = username_to_access_token_cache.find(cache_entry.user_name);
         if (old_token_iter != username_to_access_token_cache.end())
         {
@@ -634,7 +641,7 @@ bool ExternalAuthenticators::checkCredentialsAgainstProcessor(const ITokenProces
 
         LOG_TRACE(getLogger("AccessTokenAuthentication"), "Adding cache entry for user {}", cache_entry.user_name);
         access_token_to_username_cache[credentials.getToken()] = std::move(cache_entry);
-        username_to_access_token_cache[cache_entry.user_name] = std::move(credentials.getToken());
+        username_to_access_token_cache[cache_entry.user_name] = credentials.getToken();
 
         return true;
     }

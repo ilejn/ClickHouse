@@ -35,7 +35,6 @@ JWT itself is a source of information about user.
 It is decoded locally and its integrity is verified using either static key or JWKS (JSON Web Key Set), either local or remote.
 
 `algo`, `static_jwks`/`static_jwks_file` and `jwks_uri` are defining different JWT processing workflows, and they cannot be specified together.
-### JWT with static key
 ```xml
 <clickhouse>
     <token_processors>

@@ -23,7 +23,7 @@ public:
 class JWKSClient : public IJWKSProvider
 {
 public:
-    explicit JWKSClient(const String & uri, const size_t refresh_timeout_): refresh_timeout(refresh_timeout_), jwks_uri(uri) {}
+    explicit JWKSClient(const String & uri, const size_t refresh_ms_): refresh_timeout(refresh_ms_), jwks_uri(uri) {}
 
     ~JWKSClient() override = default;
     JWKSClient(const JWKSClient &) = delete;
