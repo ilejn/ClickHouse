@@ -41,6 +41,8 @@ public:
         No,
         // Return descriptor for a message with a user-provided name one level
         // below a top-level message with the hardcoded name "Envelope".
+        // If no "Envelope" message exists, the top-level message type
+        // specified in format_schema is used directly.
         // Example: In protobuf schema
         //   message Envelope {
         //     message MessageType {
@@ -81,7 +83,14 @@ public:
     getMessageTypeForFormatSchema(const FormatSchemaInfo & info, WithEnvelope with_envelope, const String & google_protos_path);
 
 private:
-    std::unordered_map<String, std::shared_ptr<ImporterWithSourceTree>> importers;
+    using ImporterKey = std::pair<String, WithEnvelope>;
+    std::unordered_map<ImporterKey,
+                       std::shared_ptr<ImporterWithSourceTree>,
+                       decltype([](const ImporterKey & key)
+                       {
+                           auto h = std::hash<String>{}(key.first);
+                           return h ^ (static_cast<uint8_t>(key.second));
+                       })> importers;
     std::mutex mutex;
 };
 

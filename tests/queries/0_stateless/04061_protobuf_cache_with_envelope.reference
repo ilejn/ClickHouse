@@ -1,0 +1,12 @@
+ProtobufList before Protobuf (cold cache):
+0	0
+2	4
+3	9
+Protobuf:
+0	0
+2	4
+3	9
+ProtobufList after Protobuf (warm cache):
+0	0
+2	4
+3	9
