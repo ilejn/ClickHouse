@@ -41,11 +41,6 @@ public:
 
     const google::protobuf::Descriptor * import(const String & schema_path, const String & message_name)
     {
-        // Search the message type among already imported ones.
-        const auto * descriptor = importer.pool()->FindMessageTypeByName(message_name);
-        if (descriptor)
-            return descriptor;
-
         const auto * file_descriptor = importer.Import(schema_path);
         if (error)
         {
@@ -60,7 +55,11 @@ public:
                 info.message);
         }
 
-        assert(file_descriptor);
+        if (!file_descriptor)
+            throw Exception(
+                ErrorCodes::CANNOT_PARSE_PROTOBUF_SCHEMA,
+                "Cannot parse '{}' file",
+                schema_path);
 
         if (with_envelope == WithEnvelope::Yes)
         {
@@ -125,7 +124,7 @@ ProtobufSchemas::getMessageTypeForFormatSchema(const FormatSchemaInfo & info, Wi
     }
 
     std::lock_guard lock(mutex);
-    auto key = ImporterKey{info.schemaDirectory(), with_envelope};
+    auto key = ImporterKey{info.schemaDirectory(), info.schemaPath(), with_envelope};
     auto it = importers.find(key);
     if (it == importers.end())
         it = importers

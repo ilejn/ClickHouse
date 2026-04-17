@@ -83,13 +83,22 @@ public:
     getMessageTypeForFormatSchema(const FormatSchemaInfo & info, WithEnvelope with_envelope, const String & google_protos_path);
 
 private:
-    using ImporterKey = std::pair<String, WithEnvelope>;
+    struct ImporterKey
+    {
+        String schema_directory;
+        String schema_path;
+        WithEnvelope with_envelope;
+
+        bool operator==(const ImporterKey & other) const = default;
+    };
+
     std::unordered_map<ImporterKey,
                        std::shared_ptr<ImporterWithSourceTree>,
                        decltype([](const ImporterKey & key)
                        {
-                           auto h = std::hash<String>{}(key.first);
-                           return h ^ (static_cast<uint8_t>(key.second));
+                           auto h1 = std::hash<String>{}(key.schema_directory);
+                           auto h2 = std::hash<String>{}(key.schema_path);
+                           return h1 ^ (h2 << 1) ^ (static_cast<uint8_t>(key.with_envelope) << 2);
                        })> importers;
     std::mutex mutex;
 };
