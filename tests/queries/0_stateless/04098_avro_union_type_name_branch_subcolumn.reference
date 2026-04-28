@@ -1,0 +1,9 @@
+== Explicit schema: branch payload column without union $name ==
+1	\N
+2	10
+3	20
+4	\N
+5	30
+
+== Explicit schema: union $name together with branch payload column ==
+Code: 8. DB::Exception: Received from localhost:9000. DB::Exception: Field nullable_payload.TypeA.x not found in Avro schema: (while reading header): (in file/uri {serverErrorFileName:String}): While executing AvroRowInputFormat: While executing File. (THERE_IS_NO_COLUMN)

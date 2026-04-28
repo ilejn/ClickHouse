@@ -1,0 +1,10 @@
+== DESCRIBE with union_type_name enabled for nested union ==
+id	Int32
+outer	Tuple(inner Nullable(Tuple(x Int32)))
+outer.inner.$name	Nullable(String)
+
+== Explicit schema: only nested $name column ==
+1	\N
+2	InnerType
+3	InnerType
+
